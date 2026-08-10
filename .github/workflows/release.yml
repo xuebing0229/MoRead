@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to publish (for example v1.0.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,8 +22,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -33,7 +43,7 @@ jobs:
         shell: bash
         run: |
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
-          test "$VERSION_NAME" = "${GITHUB_REF_NAME#v}"
+          test "$VERSION_NAME" = "${RELEASE_TAG#v}"
       - name: Test and build signed release
         env:
           MOREAD_RELEASE_STORE_FILE: .ci-release.jks
@@ -53,4 +63,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.apk --verify-tag --generate-notes --latest --title "墨知 ${GITHUB_REF_NAME#v}"
+        run: gh release create "$RELEASE_TAG" dist/*.apk --verify-tag --generate-notes --latest --title "墨知 ${RELEASE_TAG#v}"
