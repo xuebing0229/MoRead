@@ -113,14 +113,15 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun CompanionChatScreen(
-    bookId: Long,
+    bookId: Long?,
     onBack: () -> Unit,
+    mode: CompanionChatMode = CompanionChatMode.COMPANION,
     companionViewModel: ReaderCompanionViewModel = hiltViewModel(),
     mediaViewModel: ReaderSelectionMediaViewModel = hiltViewModel()
 ) {
     val state by companionViewModel.uiState.collectAsStateWithLifecycle()
     val chatContext by companionViewModel.chatContext.collectAsStateWithLifecycle()
-    LaunchedEffect(bookId) { companionViewModel.bind(bookId) }
+    LaunchedEffect(bookId, mode) { companionViewModel.bind(bookId, mode.conversationType) }
 
     val palette = companionChatPalette()
     val persona = state.activePersona
@@ -282,7 +283,9 @@ fun CompanionChatScreen(
                             )
                         }
                         Text(
-                            text = chatContext.bookTitle.ifBlank { "伴读中" },
+                            text = chatContext.bookTitle.ifBlank { "伴读中" }.let { bookTitle ->
+                                if (mode == CompanionChatMode.CASUAL) "随便聊 · $bookTitle" else bookTitle
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = palette.muted,
                             maxLines = 1,
@@ -596,19 +599,21 @@ fun CompanionChatScreen(
                                         filePicker.launch(arrayOf("text/*"))
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("生成剧情梗概") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Summarize, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        attachMenuExpanded = false
-                                        if (!state.isStreaming) {
-                                            pendingQuestionAnchor = true
-                                            companionViewModel.generatePlotSummary(sceneQuote)
+                                if (mode == CompanionChatMode.COMPANION) {
+                                    DropdownMenuItem(
+                                        text = { Text("生成剧情梗概") },
+                                        leadingIcon = {
+                                            Icon(Icons.Outlined.Summarize, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            attachMenuExpanded = false
+                                            if (!state.isStreaming) {
+                                                pendingQuestionAnchor = true
+                                                companionViewModel.generatePlotSummary(sceneQuote)
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                         // 玻璃胶囊输入条：发送/停止钮嵌在胶囊内右下角，28dp 小圆钮随多行输入贴底。
@@ -631,7 +636,11 @@ fun CompanionChatScreen(
                                 ) {
                                     if (input.isEmpty()) {
                                         Text(
-                                            text = "问角色，也可以聊你的感受…",
+                                            text = if (mode == CompanionChatMode.CASUAL) {
+                                                "聊任何教材、知识点或学习计划…"
+                                            } else {
+                                                "问角色，也可以聊你的感受…"
+                                            },
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = palette.muted,
                                             maxLines = 1,

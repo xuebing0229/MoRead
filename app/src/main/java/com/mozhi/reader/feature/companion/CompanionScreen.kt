@@ -17,7 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,17 +42,19 @@ import com.mozhi.reader.ui.components.FrostedSurface
 import com.mozhi.reader.ui.theme.MoReadTokens
 
 /**
- * 伴读页（design/ui-adaptation-plan.md §5）：角色卡列表，接 personas 表。
- * 点卡片 = 设为当前伴读角色（持久化），编辑按钮进角色编辑二级页。
+ * 伴读页：随便聊入口 + 角色卡列表。随便聊复用完整伴读会话，因此无需选区也能
+ * 获得教材 RAG、阅读进度和按角色隔离的长期记忆。
  */
 @Composable
 fun CompanionScreen(
     contentPadding: PaddingValues,
     onEditPersona: (Long) -> Unit,
     onCreatePersona: () -> Unit,
+    onOpenCasualChat: () -> Unit,
     viewModel: CompanionViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val activePersona = state.personas.firstOrNull { it.id == state.activePersonaId }
 
     Box(
         modifier = Modifier
@@ -73,6 +77,13 @@ fun CompanionScreen(
                     )
                 }
             }
+            item {
+                CasualChatCard(
+                    activePersona = activePersona,
+                    memoryCount = activePersona?.let { state.memoryCounts[it.id] } ?: 0L,
+                    onOpenChat = onOpenCasualChat
+                )
+            }
             items(state.personas, key = PersonaEntity::id) { persona ->
                 PersonaCard(
                     persona = persona,
@@ -94,6 +105,59 @@ fun CompanionScreen(
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CasualChatCard(
+    activePersona: PersonaEntity?,
+    memoryCount: Long,
+    onOpenChat: () -> Unit
+) {
+    FrostedSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 7.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(
+                        Icons.Outlined.ChatBubbleOutline,
+                        contentDescription = null,
+                        modifier = Modifier.padding(9.dp).size(20.dp)
+                    )
+                }
+                Column(Modifier.padding(start = 11.dp)) {
+                    Text("随便聊", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = activePersona?.let { "和 ${it.name} 聊聊学到的内容 · 记忆 $memoryCount 段" }
+                            ?: "选择角色后开始聊天",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = "不用引用原文，也不用指定教材。角色会检索整个书架，并结合你们跨教材的长期记忆回答。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = onOpenChat,
+                enabled = activePersona != null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("开始随便聊")
             }
         }
     }

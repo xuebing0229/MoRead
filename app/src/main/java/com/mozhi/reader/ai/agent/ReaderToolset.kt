@@ -155,6 +155,162 @@ class ReaderToolset @Inject constructor(
             }
         } ?: tools
     }
+
+    /**
+     * 全书架随便聊工具集：不绑定单书，也不按阅读进度过滤。list/search_library
+     * 是这个模式的核心能力，始终注册，避免旧角色卡因没有新工具名而失去 RAG。
+     */
+    fun forLibrary(
+        personaId: Long? = null,
+        enabledTools: Collection<String>? = null
+    ): List<AgentTool> {
+        val embedQuery: suspend (String) -> FloatArray = { query ->
+            val resolved = clientFactory.get().forRole(ModelRole.EMBEDDING)
+            Embeddings.conformToIndex(resolved.client.embed(listOf(query)).first())
+        }
+        val tools = buildList {
+            add(ListLibraryTool(libraryRepository))
+            add(
+                SearchLibraryTool(
+                    libraryRepository = libraryRepository,
+                    embedQuery = embedQuery,
+                    store = { vectorStore.get() },
+                    requestIndexes = {
+                        embeddingScheduler.enqueue(resetBookIndex = false)
+                    }
+                )
+            )
+            add(WebSearchTool(webSearchService))
+            add(WebScrapeTool(webSearchService))
+            if (personaId != null) {
+                add(
+                    RecallMemoryTool(
+                        personaId = personaId,
+                        embedQuery = embedQuery,
+                        store = { vectorStore.get() }
+                    )
+                )
+            }
+        }
+        return enabledTools?.let { allowed ->
+            tools.filter { tool ->
+                tool.spec.name == "list_library" || tool.spec.name == "search_library" ||
+                    tool.spec.name in allowed
+            }
+        } ?: tools
+    }
+}
+
+private class ListLibraryTool(
+    private val libraryRepository: LibraryRepository
+) : AgentTool {
+    override val displayName: String = "查看全部教材"
+
+    override val spec: ToolSpec = ToolSpec(
+        name = "list_library",
+        description = "列出用户书架里的全部教材以及是否开始阅读。需要判断用户有哪些资料或消除书名歧义时使用。",
+        parameters = buildJsonObject { put("type", "object") }
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val books = libraryRepository.getBooks()
+        if (books.isEmpty()) return "书架里还没有教材。"
+        return buildString {
+            append("书架共有 ").append(books.size).append(" 本教材：\n")
+            books.forEach { book ->
+                val unit = if (book.sourceType == BookSourceType.PDF) "页" else "章"
+                append("- 《").append(book.title).append('》')
+                book.author.takeIf(String::isNotBlank)?.let { append("（").append(it).append("）") }
+                if (book.lastReadAt > 0L) {
+                    append("：读到第 ").append(book.lastReadChapterIndex + 1).append(' ').append(unit)
+                } else {
+                    append("：尚未开始")
+                }
+                append('\n')
+            }
+        }.trimEnd()
+    }
+}
+
+private class SearchLibraryTool(
+    private val libraryRepository: LibraryRepository,
+    private val embedQuery: suspend (String) -> FloatArray,
+    private val store: () -> BoxStore,
+    private val requestIndexes: () -> Unit
+) : AgentTool {
+    override val displayName: String = "检索全部教材"
+
+    override val spec: ToolSpec = ToolSpec(
+        name = "search_library",
+        description = "跨用户书架中的全部教材进行语义检索，不受当前阅读进度限制，未读章节也会参与。用于讨论学过或尚未学过的知识、比较多本教材或寻找内容出处。",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("description", "要在所有教材中查找的概念、问题或内容描述")
+                }
+                putJsonObject("top_k") {
+                    put("type", "integer")
+                    put("description", "返回片段数量，1-10，默认 6")
+                }
+            }
+            putJsonArray("required") { add(JsonPrimitive("query")) }
+        }
+    )
+
+    override suspend fun execute(arguments: JsonObject): String {
+        val query = arguments["query"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (query.isEmpty()) return "缺少检索词 query"
+        val topK = (arguments["top_k"]?.jsonPrimitive?.intOrNull ?: 6).coerceIn(1, 10)
+        val books = libraryRepository.getBooks()
+        if (books.isEmpty()) return "书架里还没有教材，暂时无法检索。"
+
+        val indexedBookIds = runCatching {
+            books.filter { VectorQueries.chaptersWithChunks(store(), it.id).isNotEmpty() }
+                .mapTo(hashSetOf()) { it.id }
+        }.getOrDefault(emptySet())
+        if (indexedBookIds.size < books.size) requestIndexes()
+
+        val vector = try {
+            embedQuery(query)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            return "全书架语义检索暂不可用：${error.message ?: "Embedding 配置异常"}"
+        }
+        val booksById = books.associateBy(BookEntity::id)
+        val hits = VectorQueries.searchAllChunks(store(), vector, topK * 3)
+            .asSequence()
+            .map { it.get() }
+            .filter { it.text?.isNotBlank() == true && it.bookId in booksById }
+            .distinctBy { Triple(it.bookId, it.chapterIndex, it.text) }
+            .take(topK)
+            .toList()
+        if (hits.isEmpty()) {
+            return if (indexedBookIds.size < books.size) {
+                "全书架 RAG 索引正在后台补齐，目前没有找到与「$query」相关的片段；索引完成后再试一次。"
+            } else {
+                "全部教材中没有找到与「$query」相关的片段。"
+            }
+        }
+        return buildString {
+            append("以下结果来自整个书架，包含已读和未读内容：\n")
+            hits.forEach { hit ->
+                val book = booksById.getValue(hit.bookId)
+                val unit = if (book.sourceType == BookSourceType.PDF) "页" else "章"
+                append("\n【《").append(book.title).append("》· 第 ")
+                    .append(hit.chapterIndex + 1).append(' ').append(unit)
+                libraryRepository.getChapterTitle(hit.bookId, hit.chapterIndex)
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { append("「").append(it).append("」") }
+                append("】\n").append(hit.text).append('\n')
+            }
+            if (indexedBookIds.size < books.size) {
+                append("\n（部分教材的 RAG 索引仍在后台建立，本次结果来自已完成索引的教材。）")
+            }
+        }
+    }
 }
 
 private class WebScrapeTool(

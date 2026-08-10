@@ -36,11 +36,17 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 enum class AgentStepState { RUNNING, SUCCEEDED, FAILED }
+
+enum class CompanionChatMode(val conversationType: String) {
+    COMPANION("COMPANION"),
+    CASUAL("CASUAL")
+}
 
 data class AgentExecutionStep(
     val callId: String,
@@ -103,7 +109,10 @@ class ReaderCompanionViewModel @Inject constructor(
     private val userMaskStore: UserMaskStore
 ) : ViewModel() {
 
-    private val bookId = MutableStateFlow<Long?>(null)
+    private data class ChatBinding(val bookId: Long?, val type: String)
+
+    /** null = 尚未绑定页面；binding.bookId=null = 已绑定到跨全书架随便聊。 */
+    private val binding = MutableStateFlow<ChatBinding?>(null)
     private val session = MutableStateFlow(SessionState())
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
@@ -137,25 +146,32 @@ class ReaderCompanionViewModel @Inject constructor(
         personas to (personas.find { it.id == storedId } ?: personas.firstOrNull())
     }
 
-    private val embeddingProgress = bookId
+    private val embeddingProgress = binding
         .filterNotNull()
-        .flatMapLatest(embeddingProgressTracker::observeBook)
+        .flatMapLatest { bound ->
+            bound.bookId?.let(embeddingProgressTracker::observeBook) ?: flowOf(null)
+        }
 
     /** 独立全屏聊天页用：书名 + 当前进度章节题（作为 sceneQuote）。 */
-    val chatContext = bookId
+    val chatContext = binding
         .filterNotNull()
-        .flatMapLatest { id ->
-            combine(
-                libraryRepository.observeBook(id),
-                libraryRepository.observeChapters(id)
-            ) { book, chapters ->
-                val chapterTitle = book?.lastReadChapterIndex
-                    ?.let { chapters.getOrNull(it)?.title }
-                    .orEmpty()
-                CompanionChatContext(
-                    bookTitle = book?.title.orEmpty(),
-                    sceneQuote = chapterTitle.ifBlank { book?.title.orEmpty() }
-                )
+        .flatMapLatest { bound ->
+            val id = bound.bookId
+            if (id == null) {
+                flowOf(CompanionChatContext(bookTitle = "全部教材", sceneQuote = ""))
+            } else {
+                combine(
+                    libraryRepository.observeBook(id),
+                    libraryRepository.observeChapters(id)
+                ) { book, chapters ->
+                    val chapterTitle = book?.lastReadChapterIndex
+                        ?.let { chapters.getOrNull(it)?.title }
+                        .orEmpty()
+                    CompanionChatContext(
+                        bookTitle = book?.title.orEmpty(),
+                        sceneQuote = chapterTitle.ifBlank { book?.title.orEmpty() }
+                    )
+                }
             }
         }
         .stateIn(
@@ -193,31 +209,35 @@ class ReaderCompanionViewModel @Inject constructor(
         // （书, 角色）变化 → 挂到最近会话，同时持续观察该组合的全部历史；用户可随时
         // 新建、切换或删除，不再把一整本书锁死为单一会话。
         viewModelScope.launch {
-            combine(bookId, activePersona) { book, (_, active) -> book to active?.id }
+            combine(binding.filterNotNull(), activePersona) { bound, (_, active) ->
+                bound to active?.id
+            }
                 .distinctUntilChanged()
-                .collect { (book, personaId) ->
+                .collect { (bound, personaId) ->
+                    val book = bound.bookId
+                    val type = bound.type
                     session.value.conversationId?.let(memoryScheduler::onConversationClosed)
                     streamJob?.cancel()
                     messagesJob?.cancel()
                     conversationsJob?.cancel()
                     suggestionJob?.cancel()
                     session.value = SessionState()
-                    if (book != null && personaId != null) {
+                    if (personaId != null) {
                         val existing = chatRepository.findLatestConversation(
                             bookId = book,
                             personaId = personaId,
-                            type = CONVERSATION_TYPE
+                            type = type
                         )
                         session.value = SessionState(conversationId = existing?.id)
                         existing?.id?.let(::observeMessages)
-                        observeConversations(book, personaId)
+                        observeConversations(book, personaId, type)
                     }
                 }
         }
     }
 
-    fun bind(bookId: Long) {
-        this.bookId.value = bookId
+    fun bind(bookId: Long?, conversationType: String = CompanionChatMode.COMPANION.conversationType) {
+        binding.value = ChatBinding(bookId, conversationType)
     }
 
     /** 切换伴读角色：写 DataStore，与伴读页共用同一份选择。 */
@@ -226,11 +246,12 @@ class ReaderCompanionViewModel @Inject constructor(
     }
 
     fun retryEmbedding() {
-        bookId.value?.let(embeddingProgressTracker::retry)
+        binding.value?.bookId?.let(embeddingProgressTracker::retry)
     }
 
     fun newConversation() {
-        val book = bookId.value ?: return
+        val bound = binding.value ?: return
+        val book = bound.bookId
         val persona = uiState.value.activePersona ?: return
         if (session.value.isStreaming) return
         viewModelScope.launch {
@@ -289,7 +310,8 @@ class ReaderCompanionViewModel @Inject constructor(
 
     fun editMessage(messageId: Long, content: String, sceneQuote: String) {
         if (session.value.isStreaming) return
-        val book = bookId.value ?: return
+        val bound = binding.value ?: return
+        val book = bound.bookId
         val persona = uiState.value.activePersona ?: return
         viewModelScope.launch {
             runCatching { chatRepository.editMessage(messageId, content) }
@@ -316,7 +338,8 @@ class ReaderCompanionViewModel @Inject constructor(
 
     fun reroll(messageId: Long, sceneQuote: String) {
         if (session.value.isStreaming) return
-        val book = bookId.value ?: return
+        val bound = binding.value ?: return
+        val book = bound.bookId
         val persona = uiState.value.activePersona ?: return
         viewModelScope.launch {
             runCatching { chatRepository.prepareReroll(messageId) }
@@ -371,7 +394,8 @@ class ReaderCompanionViewModel @Inject constructor(
     ) {
         val trimmed = text.trim()
         if ((trimmed.isEmpty() && attachments.isEmpty()) || session.value.isStreaming) return
-        val book = bookId.value ?: return
+        val bound = binding.value ?: return
+        val book = bound.bookId
         val persona = uiState.value.activePersona ?: return
         viewModelScope.launch {
             try {
@@ -425,7 +449,8 @@ class ReaderCompanionViewModel @Inject constructor(
     }
 
     fun retry(sceneQuote: String) {
-        val book = bookId.value ?: return
+        val bound = binding.value ?: return
+        val book = bound.bookId
         val persona = uiState.value.activePersona ?: return
         val conversationId = session.value.conversationId ?: return
         if (session.value.isStreaming) return
@@ -465,11 +490,11 @@ class ReaderCompanionViewModel @Inject constructor(
         }
     }
 
-    private suspend fun createConversation(book: Long, persona: PersonaEntity): Long {
+    private suspend fun createConversation(book: Long?, persona: PersonaEntity): Long {
         val conversationId = chatRepository.startConversation(
             bookId = book,
             title = AiChatRepository.NEW_CONVERSATION_TITLE,
-            type = CONVERSATION_TYPE,
+            type = binding.value?.type ?: CompanionChatMode.COMPANION.conversationType,
             // 落库的 system 只是快照；每轮真正生效的由 ContextBuilder 重建。
             systemPrompt = contextBuilder.build(persona = persona, bookId = book),
             firstUserMessage = null,
@@ -499,10 +524,10 @@ class ReaderCompanionViewModel @Inject constructor(
         observeMessages(conversationId)
     }
 
-    private fun observeConversations(book: Long, personaId: Long) {
+    private fun observeConversations(book: Long?, personaId: Long, type: String) {
         conversationsJob?.cancel()
         conversationsJob = viewModelScope.launch {
-            chatRepository.observeConversations(book, personaId, CONVERSATION_TYPE)
+            chatRepository.observeConversations(book, personaId, type)
                 .collect { conversations ->
                     session.value = session.value.copy(conversations = conversations)
                 }
@@ -522,7 +547,7 @@ class ReaderCompanionViewModel @Inject constructor(
     }
 
     private fun stream(
-        book: Long,
+        book: Long?,
         persona: PersonaEntity,
         conversationId: Long,
         sceneQuote: String,
@@ -549,12 +574,20 @@ class ReaderCompanionViewModel @Inject constructor(
                 } else {
                     emptySet()
                 }
-                val tools = readerToolset.forBook(
-                    bookId = book,
-                    personaId = persona.id,
-                    conversationId = conversationId,
-                    enabledTools = persona.enabledTools().toSet() + requiredTools + globallyEnabledTools
-                )
+                val allowedTools = persona.enabledTools().toSet() + requiredTools + globallyEnabledTools
+                val tools = if (book == null) {
+                    readerToolset.forLibrary(
+                        personaId = persona.id,
+                        enabledTools = allowedTools
+                    )
+                } else {
+                    readerToolset.forBook(
+                        bookId = book,
+                        personaId = persona.id,
+                        conversationId = conversationId,
+                        enabledTools = allowedTools
+                    )
+                }
                 val systemPrompt = contextBuilder.build(
                     persona = persona,
                     bookId = book,
@@ -670,7 +703,4 @@ class ReaderCompanionViewModel @Inject constructor(
         else -> "请求失败：${message ?: javaClass.simpleName}"
     }
 
-    private companion object {
-        const val CONVERSATION_TYPE = "COMPANION"
-    }
 }

@@ -86,7 +86,7 @@ class AiChatRepository @Inject constructor(
         chatDao.getMessages(conversationId)
 
     fun observeConversations(
-        bookId: Long,
+        bookId: Long?,
         personaId: Long,
         type: String
     ): Flow<List<ConversationEntity>> = chatDao.observeConversations(bookId, personaId, type)
@@ -94,9 +94,9 @@ class AiChatRepository @Inject constructor(
     suspend fun getConversation(conversationId: Long): ConversationEntity? =
         chatDao.getConversation(conversationId)
 
-    /** 该书 + 该角色最近一次伴读会话；没有则 null（首次发送时才建）。 */
+    /** 给定聊天范围 + 角色最近一次会话；bookId=null 表示跨全书架随便聊。 */
     suspend fun findLatestConversation(
-        bookId: Long,
+        bookId: Long?,
         personaId: Long,
         type: String
     ): ConversationEntity? = chatDao.getLatestConversation(bookId, personaId, type)

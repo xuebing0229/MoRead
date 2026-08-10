@@ -109,6 +109,23 @@ class CompanionContextBuilderTest {
     }
 
     @Test
+    fun wholeLibraryChatExplicitlyIncludesReadAndUnreadMaterials() {
+        val prompt = CompanionContextBuilder.assemble(
+            persona = persona(isRoleplay = true),
+            progress = null,
+            scene = null,
+            memories = listOf("用户之前在高数教材里卡在极限定义"),
+            toolNames = setOf("list_library", "search_library", "recall_memory")
+        )
+
+        assertTrue(prompt.contains("跨全书架"))
+        assertTrue(prompt.contains("已读和未读内容"))
+        assertTrue(prompt.contains("search_library"))
+        assertTrue(prompt.contains("高数教材里卡在极限定义"))
+        assertFalse(prompt.contains("防剧透铁律"))
+    }
+
+    @Test
     fun userMaskDescribesUserWithoutReplacingAssistantPersona() {
         val prompt = CompanionContextBuilder.assemble(
             persona = persona(isRoleplay = true),

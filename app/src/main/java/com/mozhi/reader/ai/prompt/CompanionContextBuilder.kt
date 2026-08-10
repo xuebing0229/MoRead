@@ -237,6 +237,12 @@ class CompanionContextBuilder @Inject constructor(
 
         private fun toolsBlock(toolNames: Collection<String>): String? {
             val lines = buildList {
+                if ("list_library" in toolNames) {
+                    add("这是跨全书架的随便聊会话；需要确认有哪些教材或消除书名歧义时，用 list_library 查看书架。")
+                }
+                if ("search_library" in toolNames) {
+                    add("讨论任何教材知识点、比较多本教材或寻找出处时，先用 search_library 跨全书架检索。它包含已读和未读内容，不受单书阅读进度限制；回答要标明内容来自哪本教材。")
+                }
                 if ("search_book" in toolNames) {
                     add("需要引用或核对前文细节时，先用 search_book 检索原文（向量失败会自动本地回退，结果严格按用户实际进度过滤）。")
                 }
@@ -273,7 +279,7 @@ class CompanionContextBuilder @Inject constructor(
             }
             if (lines.isEmpty()) return null
             return "【工具使用】\n" + lines.joinToString("\n") +
-                "\n工具结果之外的书中情节不要凭空编造。"
+                "\n工具结果之外的教材内容不要凭空编造。"
         }
 
         private fun memoryBlock(memories: List<String>): String? =

@@ -17,7 +17,7 @@ public class MemoryEntry {
     public long conversationId;
     public long sourceMessageId;
     public String summary;
-    /** CHAT_SUMMARY | EVENT。 */
+    /** CHAT_SUMMARY | STUDY_SELECTION | STUDY_CASUAL | EVENT。 */
     public String sourceType;
     public long createdAt;
     @HnswIndex(dimensions = VectorDb.EMBEDDING_DIMENSIONS, distanceType = VectorDistanceType.COSINE)

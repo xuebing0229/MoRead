@@ -32,7 +32,7 @@ internal data class MemoryBatch(
     val throughMessageId: Long
 )
 
-/** 常规每 30 条；关闭时伴读会话至少 10 条、短选区学习会话至少 2 条才固化。 */
+/** 常规每 30 条；关闭时伴读至少 10 条，选区学习和随便聊至少 2 条才固化。 */
 internal object MemoryBatchPlanner {
     fun plan(
         messages: List<MessageEntity>,
@@ -47,7 +47,8 @@ internal object MemoryBatchPlanner {
         }
         val threshold = when {
             !forceOnClose -> BATCH_SIZE
-            conversationType == SELECTION_TYPE -> SELECTION_CLOSE_THRESHOLD
+            conversationType == SELECTION_TYPE || conversationType == CASUAL_TYPE ->
+                SHORT_STUDY_CLOSE_THRESHOLD
             else -> CLOSE_THRESHOLD
         }
         if (candidates.size < threshold) return null
@@ -68,8 +69,9 @@ internal object MemoryBatchPlanner {
 
     const val BATCH_SIZE = 30
     const val CLOSE_THRESHOLD = 10
-    const val SELECTION_CLOSE_THRESHOLD = 2
+    const val SHORT_STUDY_CLOSE_THRESHOLD = 2
     private const val SELECTION_TYPE = "SELECTION"
+    private const val CASUAL_TYPE = "CASUAL"
     private const val MAX_MESSAGE_CHARS = 2_000
     private const val MAX_TRANSCRIPT_CHARS = 30_000
 }
@@ -158,10 +160,10 @@ class MemoryConsolidator @Inject constructor(
                                 entry.conversationId = conversationId
                                 entry.sourceMessageId = batch.throughMessageId
                                 entry.summary = summary
-                                entry.sourceType = if (conversation.type == SELECTION_TYPE) {
-                                    STUDY_SELECTION_SOURCE_TYPE
-                                } else {
-                                    CHAT_SOURCE_TYPE
+                                entry.sourceType = when (conversation.type) {
+                                    SELECTION_TYPE -> STUDY_SELECTION_SOURCE_TYPE
+                                    CASUAL_TYPE -> STUDY_CASUAL_SOURCE_TYPE
+                                    else -> CHAT_SOURCE_TYPE
                                 }
                                 entry.createdAt = now + index
                                 entry.embedding = Embeddings.conformToIndex(vectors[index])
@@ -203,6 +205,14 @@ class MemoryConsolidator @Inject constructor(
             不猜测，不补充对话外信息。用角色第一人称表述，例如“用户在……上仍有困惑”。
             只输出 JSON 字符串数组，0 到 5 条，每条独立且简洁，不要 Markdown。
             """.trimIndent()
+        } else if (conversationType == CASUAL_TYPE) {
+            """
+            你负责把一次教材随聊固化为长期学习记忆。只保存未来伴学仍有意义的内容：
+            用户正在学习或已经掌握的知识点、仍有困惑的部分、偏好的解释方式、学习目标与后续约定。
+            不记录寒暄或“用户聊了某本书”等流水账，不猜测，不补充对话外信息。
+            用角色第一人称表述，例如“用户已经理解……”“用户希望下次继续……”。
+            只输出 JSON 字符串数组，0 到 5 条，每条独立且简洁，不要 Markdown。
+            """.trimIndent()
         } else {
             """
             你负责把伴读对话固化为长期记忆。只提取未来交流仍有用的用户偏好、事实、约定与共同经历；
@@ -230,6 +240,8 @@ class MemoryConsolidator @Inject constructor(
     private companion object {
         const val CHAT_SOURCE_TYPE = "CHAT_SUMMARY"
         const val STUDY_SELECTION_SOURCE_TYPE = "STUDY_SELECTION"
+        const val STUDY_CASUAL_SOURCE_TYPE = "STUDY_CASUAL"
         const val SELECTION_TYPE = "SELECTION"
+        const val CASUAL_TYPE = "CASUAL"
     }
 }

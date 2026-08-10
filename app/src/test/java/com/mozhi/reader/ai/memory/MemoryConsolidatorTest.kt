@@ -69,6 +69,27 @@ class MemoryConsolidatorTest {
     }
 
     @Test
+    fun `closing casual study chat remembers one completed exchange`() {
+        assertNull(
+            MemoryBatchPlanner.plan(
+                messages(1),
+                consolidatedThrough = 0,
+                forceOnClose = true,
+                conversationType = "CASUAL"
+            )
+        )
+        assertEquals(
+            2L,
+            MemoryBatchPlanner.plan(
+                messages(2),
+                consolidatedThrough = 0,
+                forceOnClose = true,
+                conversationType = "CASUAL"
+            )?.throughMessageId
+        )
+    }
+
+    @Test
     fun `planner skips watermark system tool and blank messages`() {
         val ignored = listOf(
             MessageEntity(31, 7, ChatRole.SYSTEM.wire, "system", createdAt = 31),

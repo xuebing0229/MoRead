@@ -59,6 +59,7 @@ import com.mozhi.reader.feature.companion.CompanionScreen
 import com.mozhi.reader.feature.companion.PersonaEditorScreen
 import com.mozhi.reader.feature.importer.ImportPreviewScreen
 import com.mozhi.reader.feature.reader.CompanionChatScreen
+import com.mozhi.reader.feature.reader.CompanionChatMode
 import com.mozhi.reader.feature.reader.ReaderScreen
 import com.mozhi.reader.feature.settings.ApiLogScreen
 import com.mozhi.reader.feature.settings.AppUpdatePrompt
@@ -215,7 +216,8 @@ fun MoReadApp(
                         onEditPersona = { personaId ->
                             navController.navigate("persona/$personaId")
                         },
-                        onCreatePersona = { navController.navigate("persona/0") }
+                        onCreatePersona = { navController.navigate("persona/0") },
+                        onOpenCasualChat = { navController.navigate("casual-chat") }
                     )
                 }
                 composable(RootDestination.Settings.route) {
@@ -297,6 +299,13 @@ fun MoReadApp(
                         bookId = entry.arguments?.getString("bookId")?.toLongOrNull()
                             ?: return@pushComposable,
                         onBack = navController::popBackStack
+                    )
+                }
+                pushComposable("casual-chat") {
+                    CompanionChatScreen(
+                        bookId = null,
+                        onBack = navController::popBackStack,
+                        mode = CompanionChatMode.CASUAL
                     )
                 }
                 pushComposable("persona/{personaId}") {

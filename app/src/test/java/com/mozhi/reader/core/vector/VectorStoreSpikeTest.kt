@@ -62,6 +62,18 @@ class VectorStoreSpikeTest {
     }
 
     @Test
+    fun wholeLibrarySearchReturnsRelevantChunksAcrossBooksAndUnreadChapters() {
+        val box = store.boxFor(BookChunk::class.java)
+        box.put(chunk(bookId = 1, chapter = 30, index = 0, text = "第一本未读章节", x = 1f, y = 0f))
+        box.put(chunk(bookId = 2, chapter = 4, index = 0, text = "第二本相关章节", x = 0.9f, y = 0.1f))
+
+        val hits = VectorQueries.searchAllChunks(store, direction(1f, 0f), 10)
+
+        assertEquals(setOf(1L, 2L), hits.map { it.get().bookId }.toSet())
+        assertTrue(hits.any { it.get().chapterIndex == 30 && it.get().text == "第一本未读章节" })
+    }
+
+    @Test
     fun memoriesAreIsolatedByPersona() {
         val box = store.boxFor(MemoryEntry::class.java)
         box.put(

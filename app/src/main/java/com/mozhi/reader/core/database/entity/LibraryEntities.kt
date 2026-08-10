@@ -220,7 +220,7 @@ data class ConversationEntity(
     val bookId: Long?,
     val personaId: Long? = null,
     val title: String,
-    /** SELECTION | CHAT | COMPANION. */
+    /** SELECTION | CHAT | COMPANION | CASUAL. */
     val type: String,
     /** 分支来源；不设 FK，删除母会话不应连带删除用户保留的分支。 */
     val parentConversationId: Long? = null,

@@ -30,14 +30,14 @@ class AgentLoopTest {
         override suspend fun insertConversation(conversation: ConversationEntity): Long = 1
         override suspend fun getConversation(conversationId: Long): ConversationEntity? = null
         override suspend fun getLatestConversation(
-            bookId: Long,
+            bookId: Long?,
             personaId: Long,
             type: String
         ): ConversationEntity? = null
         override fun observeConversations(bookId: Long): Flow<List<ConversationEntity>> =
             flowOf(emptyList())
         override fun observeConversations(
-            bookId: Long,
+            bookId: Long?,
             personaId: Long,
             type: String
         ): Flow<List<ConversationEntity>> = flowOf(emptyList())

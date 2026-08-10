@@ -45,7 +45,7 @@ data class StatsUiState(
     val finishedBooks: Int = 0,
     /** 笔记 + 段落批注的总量。 */
     val bookmarkNoteCount: Int = 0,
-    /** 用户向 AI 发起过的消息总数（选段问答与伴读会话都算）。 */
+    /** 用户向 AI 发起过的消息总数（选段问答、伴读和随便聊会话都算）。 */
     val aiChatCount: Int = 0,
     val durationsByEpochDay: Map<Long, Long> = emptyMap(),
     val topBooks: List<PeriodBookStat> = emptyList()

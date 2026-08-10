@@ -16,11 +16,11 @@ interface ChatDao {
     suspend fun getConversation(conversationId: Long): ConversationEntity?
 
     @Query(
-        "SELECT * FROM conversations WHERE bookId = :bookId AND personaId = :personaId " +
+        "SELECT * FROM conversations WHERE bookId IS :bookId AND personaId = :personaId " +
             "AND type = :type ORDER BY updatedAt DESC, id DESC LIMIT 1"
     )
     suspend fun getLatestConversation(
-        bookId: Long,
+        bookId: Long?,
         personaId: Long,
         type: String
     ): ConversationEntity?
@@ -29,11 +29,11 @@ interface ChatDao {
     fun observeConversations(bookId: Long): Flow<List<ConversationEntity>>
 
     @Query(
-        "SELECT * FROM conversations WHERE bookId = :bookId AND personaId = :personaId " +
+        "SELECT * FROM conversations WHERE bookId IS :bookId AND personaId = :personaId " +
             "AND type = :type ORDER BY updatedAt DESC, id DESC"
     )
     fun observeConversations(
-        bookId: Long,
+        bookId: Long?,
         personaId: Long,
         type: String
     ): Flow<List<ConversationEntity>>

@@ -44,6 +44,21 @@ public final class VectorQueries {
                 .build());
     }
 
+    /**
+     * 全书架切片检索。不按 bookId 或阅读进度过滤，供独立的随便聊会话跨教材查找；
+     * 返回实体里的 bookId 由调用方回查书名与章节信息。
+     */
+    public static List<ObjectWithScore<BookChunk>> searchAllChunks(
+            BoxStore store,
+            float[] queryVector,
+            int topK
+    ) {
+        Box<BookChunk> box = store.boxFor(BookChunk.class);
+        return adaptiveSearch(box.count(), topK, fetchCount -> box
+                .query(BookChunk_.embedding.nearestNeighbors(queryVector, fetchCount))
+                .build());
+    }
+
     /** 角色记忆检索，按 personaId 隔离。返回最多 topK 条。 */
     public static List<ObjectWithScore<MemoryEntry>> searchMemories(
             BoxStore store,
