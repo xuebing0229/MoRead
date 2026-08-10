@@ -77,6 +77,7 @@ import com.mozhi.reader.core.database.entity.AnnotationColors
 import com.mozhi.reader.core.database.entity.AnnotationEntity
 import com.mozhi.reader.core.database.entity.AnnotationStyle
 import com.mozhi.reader.core.database.entity.BookmarkEntity
+import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.core.database.entity.ChapterEntity
 import com.mozhi.reader.core.datastore.ReaderFont
 import com.mozhi.reader.core.datastore.PendingReaderFont
@@ -84,6 +85,7 @@ import com.mozhi.reader.core.datastore.ReaderSettings
 import com.mozhi.reader.core.datastore.ReaderTheme
 import com.mozhi.reader.feature.reader.engine.ReaderAnnotationMark
 import com.mozhi.reader.feature.reader.engine.ReaderIllustrationMark
+import com.mozhi.reader.feature.reader.pdf.PdfReaderPane
 import kotlinx.coroutines.launch
 
 /** 即划即改浮条：刚落的划线 id + 浮条位置（沿用选区工具栏的锚点位）。 */
@@ -448,7 +450,32 @@ fun ReaderScreen(
                             contextText = contextText
                         )
                     }
-                if (scrollMode) {
+                if (state.book?.sourceType == BookSourceType.PDF) {
+                    PdfReaderPane(
+                        filePath = state.book?.epubPath.orEmpty(),
+                        initialPage = state.book?.lastReadChapterIndex ?: 0,
+                        requestedPage = state.currentChapterIndex,
+                        enabled = paneEnabled,
+                        onPageChanged = viewModel::updatePdfPage,
+                        onAiAction = { action, selectionText, pageIndex ->
+                            coroutineScope.launch {
+                                val contextText = viewModel.pdfSelectionContext(pageIndex, selectionText)
+                                aiRequest = ReaderAiRequest(
+                                    action = action,
+                                    selection = selectionText,
+                                    context = contextText,
+                                    bookId = bookId,
+                                    bookTitle = state.book?.title.orEmpty(),
+                                    chapterTitle = "第 ${pageIndex + 1} 页"
+                                )
+                            }
+                        },
+                        onNotice = paneNotice,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = contentAlpha.value }
+                    )
+                } else if (scrollMode) {
                     ReaderScrollPane(
                         controller = viewModel.contentController,
                         settings = state.settings,
@@ -682,6 +709,7 @@ fun ReaderScreen(
             ContentsSheet(
                 chapters = state.chapters,
                 currentChapterIndex = state.currentChapterIndex,
+                sourceType = state.book?.sourceType,
                 palette = palette,
                 onChapterClick = { index ->
                     activeSheet = null
@@ -763,6 +791,7 @@ fun ReaderScreen(
             ) {
                 ReaderSearchSheet(
                     state = searchState,
+                    sourceType = state.book?.sourceType,
                     palette = palette,
                     onQueryChange = searchViewModel::search,
                     onHitClick = { hit ->
@@ -943,6 +972,7 @@ fun ReaderScreen(
 private fun ContentsSheet(
     chapters: List<ChapterEntity>,
     currentChapterIndex: Int,
+    sourceType: BookSourceType?,
     palette: ReaderPalette,
     onChapterClick: (Int) -> Unit
 ) {
@@ -964,8 +994,9 @@ private fun ContentsSheet(
                     style = MaterialTheme.typography.headlineSmall,
                     color = palette.onBackground
                 )
+                val unit = if (sourceType == BookSourceType.PDF) "页" else "章"
                 Text(
-                    text = "共 ${chapters.size} 章 · 读到第 ${currentChapterIndex + 1} 章",
+                    text = "共 ${chapters.size} $unit · 读到第 ${currentChapterIndex + 1} $unit",
                     style = MaterialTheme.typography.labelSmall,
                     color = palette.muted,
                     modifier = Modifier.padding(top = 2.dp)

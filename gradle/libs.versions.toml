@@ -29,6 +29,7 @@ androidxJunit = "1.3.0"
 espresso = "3.7.0"
 objectbox = "4.3.0"
 androidSvg = "1.4"
+androidxPdf = "1.0.0-alpha19"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -79,6 +80,9 @@ objectbox-processor = { module = "io.objectbox:objectbox-processor", version.ref
 objectbox-windows = { module = "io.objectbox:objectbox-windows", version.ref = "objectbox" }
 objectbox-linux = { module = "io.objectbox:objectbox-linux", version.ref = "objectbox" }
 android-svg = { module = "com.caverock:androidsvg-aar", version.ref = "androidSvg" }
+androidx-pdf-core = { module = "androidx.pdf:pdf-core", version.ref = "androidxPdf" }
+androidx-pdf-document-service = { module = "androidx.pdf:pdf-document-service", version.ref = "androidxPdf" }
+androidx-pdf-viewer = { module = "androidx.pdf:pdf-viewer", version.ref = "androidxPdf" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

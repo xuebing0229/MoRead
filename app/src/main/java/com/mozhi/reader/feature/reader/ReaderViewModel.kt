@@ -8,6 +8,7 @@ import com.mozhi.reader.core.database.entity.AnnotationColors
 import com.mozhi.reader.core.database.entity.AnnotationEntity
 import com.mozhi.reader.core.database.entity.AnnotationStyle
 import com.mozhi.reader.core.database.entity.BookEntity
+import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.core.database.entity.BookmarkEntity
 import com.mozhi.reader.core.database.entity.ChapterEntity
 import com.mozhi.reader.core.database.entity.IllustrationEntity
@@ -216,6 +217,17 @@ class ReaderViewModel @Inject constructor(
                     chapters = chapters,
                     currentChapterIndex = freshBook.lastReadChapterIndex,
                     currentCharOffset = freshBook.lastReadCharOffset,
+                    pageIndex = if (freshBook.sourceType == BookSourceType.PDF) {
+                        freshBook.lastReadChapterIndex
+                    } else {
+                        it.pageIndex
+                    },
+                    pageCount = if (freshBook.sourceType == BookSourceType.PDF) chapters.size else it.pageCount,
+                    readingProgress = if (freshBook.sourceType == BookSourceType.PDF) {
+                        (freshBook.lastReadChapterIndex + 1f) / chapters.size
+                    } else {
+                        it.readingProgress
+                    },
                     isLoading = false
                 )
             }
@@ -317,8 +329,13 @@ class ReaderViewModel @Inject constructor(
      */
     fun flushProgress() {
         progressSaveJob?.cancel()
-        val chapterIndex = contentController.chapterIndex
-        val charOffset = contentController.charOffset
+        val state = mutableState.value
+        val chapterIndex = if (state.book?.sourceType == BookSourceType.PDF) {
+            state.currentChapterIndex
+        } else {
+            contentController.chapterIndex
+        }
+        val charOffset = if (state.book?.sourceType == BookSourceType.PDF) 0 else contentController.charOffset
         viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
             persistPosition(chapterIndex, charOffset)
         }
@@ -338,26 +355,61 @@ class ReaderViewModel @Inject constructor(
 
     // ---- navigation ----
 
+    /** PdfView reports a 0-based visible page; persist it on the existing chapter progress track. */
+    fun updatePdfPage(pageIndex: Int) {
+        val total = chapterEntities.size.coerceAtLeast(1)
+        val page = pageIndex.coerceIn(0, total - 1)
+        val current = mutableState.value
+        if (current.currentChapterIndex == page && current.currentCharOffset == 0) return
+        mutableState.update {
+            it.copy(
+                currentChapterIndex = page,
+                currentCharOffset = 0,
+                pageIndex = page,
+                pageCount = total,
+                readingProgress = (page + 1f) / total,
+                chapterProgress = 0f
+            )
+        }
+        progressSaveJob?.cancel()
+        progressSaveJob = viewModelScope.launch {
+            delay(PROGRESS_SAVE_DEBOUNCE_MS)
+            persistPosition(page, 0)
+        }
+    }
+
     fun goToChapter(chapterIndex: Int) {
-        contentController.jumpToChapter(chapterIndex)
+        if (mutableState.value.book?.sourceType == BookSourceType.PDF) {
+            updatePdfPage(chapterIndex)
+        } else {
+            contentController.jumpToChapter(chapterIndex)
+        }
     }
 
     fun goToPrevChapter() {
-        val target = contentController.chapterIndex - 1
+        val target = if (mutableState.value.book?.sourceType == BookSourceType.PDF) {
+            mutableState.value.currentChapterIndex - 1
+        } else {
+            contentController.chapterIndex - 1
+        }
         if (target < 0) {
             onBoundaryHit(PageTurnDirection.PREVIOUS)
             return
         }
-        contentController.jumpToChapter(target)
+        goToChapter(target)
     }
 
     fun goToNextChapter() {
-        val target = contentController.chapterIndex + 1
+        val target = if (mutableState.value.book?.sourceType == BookSourceType.PDF) {
+            mutableState.value.currentChapterIndex + 1
+        } else {
+            contentController.chapterIndex + 1
+        }
         if (target >= chapterEntities.size) {
             onBoundaryHit(PageTurnDirection.NEXT)
             return
         }
-        contentController.jumpToChapter(target)
+        goToChapter(target)
     }
 
     fun seekWithinChapter(fraction: Float) {
@@ -365,7 +417,11 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun goToProgress(progress: Float) {
-        contentController.jumpToProgress(progress)
+        if (mutableState.value.book?.sourceType == BookSourceType.PDF) {
+            updatePdfPage((progress.coerceIn(0f, 1f) * (chapterEntities.size - 1)).toInt())
+        } else {
+            contentController.jumpToProgress(progress)
+        }
     }
 
     fun goToBookmark(bookmark: BookmarkEntity) {
@@ -374,7 +430,11 @@ class ReaderViewModel @Inject constructor(
 
     /** 书内搜索命中跳转：charOffset 为章内 UTF-16 偏移，与书签同轨。 */
     fun goToPosition(chapterIndex: Int, charOffset: Int) {
-        contentController.jumpToChapter(chapterIndex, charOffset)
+        if (mutableState.value.book?.sourceType == BookSourceType.PDF) {
+            updatePdfPage(chapterIndex)
+        } else {
+            contentController.jumpToChapter(chapterIndex, charOffset)
+        }
     }
 
     /** 听书自动翻页：位置已在当前显示页时不跳，避免逐句抖动。 */
@@ -388,6 +448,13 @@ class ReaderViewModel @Inject constructor(
         ?.joinToString(separator = "\n") { it.text }
         ?.trim()
         .orEmpty()
+
+    suspend fun pdfSelectionContext(pageIndex: Int, selection: String): String {
+        val chapter = chapterEntities.getOrNull(pageIndex)
+            ?: return selection.take(PDF_CONTEXT_FALLBACK_CHARS)
+        val pageText = libraryRepository.readChapterText(bookId, chapter)
+        return buildPdfSelectionContext(pageText, selection)
+    }
 
     fun addBookmark() {
         val chapterIndex = contentController.chapterIndex
@@ -645,7 +712,17 @@ class ReaderViewModel @Inject constructor(
         const val PROGRESS_SAVE_DEBOUNCE_MS = 750L
         const val TEXT_WAIT_ATTEMPTS = 20
         const val TEXT_WAIT_INTERVAL_MS = 1500L
+        const val PDF_CONTEXT_FALLBACK_CHARS = 2_000
     }
+}
+
+internal fun buildPdfSelectionContext(pageText: String, selection: String): String {
+    if (pageText.isBlank()) return selection.take(2_000)
+    val start = pageText.indexOf(selection)
+    if (start < 0) return pageText.take(2_000)
+    val from = (start - 900).coerceAtLeast(0)
+    val to = (start + selection.length + 900).coerceAtMost(pageText.length)
+    return pageText.substring(from, to)
 }
 
 private fun List<ReadingDailyEntity>.toReaderStatistics(): ReaderStatistics {

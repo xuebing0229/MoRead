@@ -86,6 +86,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.mikepenz.markdown.m3.Markdown
 import com.mozhi.reader.core.database.entity.BookEntity
+import com.mozhi.reader.core.database.entity.BookSourceType
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import com.mozhi.reader.ui.components.blockSheetDrag
@@ -273,7 +274,7 @@ fun BookDetailScreen(
                         text = if (book.lastReadAt == 0L) {
                             "开始阅读"
                         } else {
-                            "继续阅读 · ${chapterTitle.ifBlank { "第 ${book.lastReadChapterIndex + 1} 章" }}"
+                            "继续阅读 · ${chapterTitle.ifBlank { "第 ${book.lastReadChapterIndex + 1} ${book.positionUnit}" }}"
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -338,7 +339,11 @@ fun BookDetailScreen(
                         ListItem(
                             headlineContent = { Text(bookmark.label) },
                             supportingContent = {
-                                Text(bookmark.excerpt.ifBlank { "第 ${bookmark.chapterIndex + 1} 章" })
+                                Text(
+                                    bookmark.excerpt.ifBlank {
+                                        "第 ${bookmark.chapterIndex + 1} ${state.book?.positionUnit ?: "章"}"
+                                    }
+                                )
                             },
                             trailingContent = {
                                 IconButton(onClick = { viewModel.deleteBookmark(bookmark.id) }) {
@@ -1069,7 +1074,7 @@ private fun DetailHero(book: BookEntity) {
             modifier = Modifier.padding(top = 16.dp, start = 32.dp, end = 32.dp)
         )
         Text(
-            text = "${book.author.ifBlank { "未知作者" }} · ${book.totalChapters} 章",
+            text = "${book.author.ifBlank { "未知作者" }} · ${book.totalChapters} ${book.positionUnit}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)
@@ -1210,7 +1215,7 @@ private fun RingRow(
                     modifier = Modifier.padding(top = 10.dp)
                 )
                 Text(
-                    text = "第 ${book.lastReadChapterIndex + 1} / ${book.totalChapters} 章",
+                    text = "第 ${book.lastReadChapterIndex + 1} / ${book.totalChapters} ${book.positionUnit}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp)
@@ -1254,6 +1259,9 @@ private fun RingRow(
         }
     }
 }
+
+private val BookEntity.positionUnit: String
+    get() = if (sourceType == BookSourceType.PDF) "页" else "章"
 
 @Composable
 private fun ReadingAssetsEntry(

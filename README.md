@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/ovo066/MoRead/releases"><img src="https://img.shields.io/github/v/release/ovo066/MoRead?label=%E4%B8%8B%E8%BD%BD&color=0a0a0a" alt="Release" /></a>
-  <img src="https://img.shields.io/badge/Android-8.0%2B-0a0a0a" alt="Android 8.0+" />
+  <img src="https://img.shields.io/badge/Android-9.0%2B-0a0a0a" alt="Android 9.0+" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
 </p>
 
@@ -19,6 +19,7 @@
 ### 阅读
 
 - TXT / EPUB 导入：编码自动探测，正则分章（Legado 同源规则集），导入前可预览并自定义分章规则
+- PDF 教材伴读：保留原版页面、按页恢复进度，长按选中文字即可翻译、解析或向当前角色提问；文本层同时进入书籍 RAG
 - 自绘排版引擎：仿真 / 覆盖 / 滑动三种翻页，选词拖柄、段落批注与评论、书签、书内关键词搜索
 - 排版自由：字号、行距、页边距、明暗主题、自定义三色阅读主题；无封面书籍自动生成直排文字封面
 - 连续听书：系统 TTS 或云端 AI TTS 逐句朗读，自动翻页与跨章续播，通知栏播放控制，当前句正文高亮
@@ -42,11 +43,11 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/ovo066/MoRead/releases) 下载最新 APK。系统要求 Android 8.0（API 26）及以上。
+自行构建本 fork 的 APK。由于 PDF 阅读组件要求，系统最低为 Android 9.0（API 28）。
 
 ## 快速上手
 
-1. 书架页导入书籍，或在文件管理器中对 TXT / EPUB 使用「其他应用打开」→ 墨知
+1. 书架页导入书籍，或在文件管理器中对 TXT / EPUB / PDF 使用「其他应用打开」→ 墨知
 2. （可选）设置 → AI 服务商：添加服务商与 API Key，为对话 / 向量 / 语音 / 生图分配模型；语音朗读与生图也可在各自二级页独立配置
 3. 阅读页长按选词即可翻译、解析、提问；底部工具栏可打开目录、听书与伴读
 

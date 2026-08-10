@@ -7,16 +7,23 @@ import com.mozhi.reader.ai.agent.AgentLoop
 import com.mozhi.reader.ai.agent.ReaderToolset
 import com.mozhi.reader.ai.chat.AiChatRepository
 import com.mozhi.reader.ai.client.AiClientException
+import com.mozhi.reader.ai.memory.MemoryConsolidationScheduler
+import com.mozhi.reader.ai.persona.PersonaRepository
+import com.mozhi.reader.ai.prompt.CompanionContextBuilder
 import com.mozhi.reader.ai.prompt.SelectionAiAction
 import com.mozhi.reader.ai.prompt.SelectionPrompts
 import com.mozhi.reader.ai.search.WebSearchSettingsStore
 import com.mozhi.reader.core.database.entity.MessageEntity
+import com.mozhi.reader.core.database.entity.PersonaEntity
+import com.mozhi.reader.core.database.entity.enabledTools
+import com.mozhi.reader.core.datastore.ReaderSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** One selection-action invocation of the AI panel. */
@@ -46,13 +53,18 @@ class ReaderAiViewModel @Inject constructor(
     private val chatRepository: AiChatRepository,
     private val agentLoop: AgentLoop,
     private val readerToolset: ReaderToolset,
-    private val webSearchSettingsStore: WebSearchSettingsStore
+    private val webSearchSettingsStore: WebSearchSettingsStore,
+    private val personaRepository: PersonaRepository,
+    private val settingsRepository: ReaderSettingsRepository,
+    private val contextBuilder: CompanionContextBuilder,
+    private val memoryScheduler: MemoryConsolidationScheduler
 ) : ViewModel() {
 
     private val mutableState = MutableStateFlow(ReaderAiUiState())
     val uiState = mutableState.asStateFlow()
 
     private var startedRequest: ReaderAiRequest? = null
+    private var startedPersona: PersonaEntity? = null
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
 
@@ -62,22 +74,37 @@ class ReaderAiViewModel @Inject constructor(
     /** Idempotent per request instance; a new selection action starts a fresh conversation. */
     fun start(request: ReaderAiRequest) {
         if (startedRequest === request) return
+        mutableState.value.conversationId?.let(memoryScheduler::onConversationClosed)
         startedRequest = request
+        startedPersona = null
         streamJob?.cancel()
         messagesJob?.cancel()
         mutableState.value = ReaderAiUiState(request = request)
         viewModelScope.launch {
             try {
+                val personas = personaRepository.getPersonas()
+                val activePersonaId = settingsRepository.activePersonaId.first()
+                val persona = personas.firstOrNull { it.id == activePersonaId } ?: personas.firstOrNull()
+                startedPersona = persona
+                val toolNames = enabledToolNames(persona)
+                val systemPrompt = contextBuilder.build(
+                    persona = persona,
+                    bookId = request.bookId,
+                    scene = request.context,
+                    memoryQuery = request.selection,
+                    toolNames = toolNames
+                ) + SELECTION_MODE_BLOCK
                 val conversationId = chatRepository.startConversation(
                     bookId = request.bookId,
                     title = "${request.action.label}：${request.selection.take(24)}",
                     type = CONVERSATION_TYPE,
-                    systemPrompt = SelectionPrompts.system(request.bookTitle, request.chapterTitle),
+                    systemPrompt = systemPrompt,
                     firstUserMessage = SelectionPrompts.firstMessage(
                         action = request.action,
                         selection = request.selection,
                         context = request.context
-                    ).takeIf { request.action != SelectionAiAction.ASK }
+                    ).takeIf { request.action != SelectionAiAction.ASK },
+                    personaId = persona?.id
                 )
                 mutableState.value = mutableState.value.copy(conversationId = conversationId)
                 observeMessages(conversationId)
@@ -134,11 +161,13 @@ class ReaderAiViewModel @Inject constructor(
     }
 
     fun reset() {
+        mutableState.value.conversationId?.let(memoryScheduler::onConversationClosed)
         streamJob?.cancel()
         messagesJob?.cancel()
         streamJob = null
         messagesJob = null
         startedRequest = null
+        startedPersona = null
         streamBuffer.setLength(0)
         mutableState.value = ReaderAiUiState()
     }
@@ -172,19 +201,24 @@ class ReaderAiViewModel @Inject constructor(
             streamBuffer.setLength(0)
             val ticker = launchStreamingTicker(::publishStreamingSnapshot)
             try {
+                val persona = startedPersona
+                val request = startedRequest
                 val tools = bookId?.let { id ->
-                    val enabledTools = buildSet {
-                        add("get_reading_progress")
-                        add("search_book")
-                        add("read_book_section")
-                        if (webSearchSettingsStore.current().enabled) {
-                            add("web_search")
-                            add("web_scrape")
-                        }
-                    }
-                    readerToolset.forBook(id, enabledTools = enabledTools)
+                    readerToolset.forBook(
+                        bookId = id,
+                        personaId = persona?.id,
+                        conversationId = conversationId,
+                        enabledTools = enabledToolNames(persona)
+                    )
                 }.orEmpty()
-                agentLoop.run(conversationId, tools).collect { event ->
+                val systemPrompt = contextBuilder.build(
+                    persona = persona,
+                    bookId = bookId,
+                    scene = request?.context,
+                    memoryQuery = request?.selection,
+                    toolNames = tools.map { it.spec.name }
+                ) + SELECTION_MODE_BLOCK
+                agentLoop.run(conversationId, tools, systemPrompt).collect { event ->
                     when (event) {
                         is AgentEvent.Text -> {
                             streamBuffer.append(event.text)
@@ -204,6 +238,7 @@ class ReaderAiViewModel @Inject constructor(
                                 },
                                 streamingText = ""
                             )
+                            memoryScheduler.afterTurn(conversationId)
                         }
                         is AgentEvent.ToolRun -> mutableState.value = mutableState.value.copy(
                             toolStatus = "正在${event.displayName}…",
@@ -267,6 +302,7 @@ class ReaderAiViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        mutableState.value.conversationId?.let(memoryScheduler::onConversationClosed)
         streamJob?.cancel()
         messagesJob?.cancel()
     }
@@ -276,7 +312,25 @@ class ReaderAiViewModel @Inject constructor(
         else -> "请求失败：${message ?: javaClass.simpleName}"
     }
 
+    private suspend fun enabledToolNames(persona: PersonaEntity?): Set<String> = buildSet {
+        add("get_reading_progress")
+        add("search_book")
+        add("read_book_section")
+        if (persona != null) addAll(persona.enabledTools())
+        if (webSearchSettingsStore.current().enabled) {
+            add("web_search")
+            add("web_scrape")
+        }
+    }
+
     private companion object {
         const val CONVERSATION_TYPE = "SELECTION"
+        val SELECTION_MODE_BLOCK = """
+
+            【当前任务】
+            用户选中了当前阅读位置的一段内容，接下来可能要求翻译、解析或围绕该段提问。
+            保持你的原本人格和说话方式，不要因为这是学习问题而突然变成通用教师口吻。
+            解释应以帮助用户真正理解为优先；必要时使用书内检索工具核对相关上下文。
+        """.trimIndent()
     }
 }

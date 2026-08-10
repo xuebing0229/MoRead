@@ -2,6 +2,7 @@ package com.mozhi.reader.ai.prompt
 
 import com.mozhi.reader.ai.client.AiClientFactory
 import com.mozhi.reader.core.database.entity.ModelRole
+import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.core.database.entity.PersonaEntity
 import com.mozhi.reader.core.database.entity.exampleDialogs
 import com.mozhi.reader.core.database.entity.worldBook
@@ -22,7 +23,8 @@ data class BookProgress(
     val totalChapters: Int,
     /** 0 起的当前章节索引。 */
     val currentChapterIndex: Int,
-    val currentChapterTitle: String?
+    val currentChapterTitle: String?,
+    val sourceType: BookSourceType = BookSourceType.EPUB
 )
 
 /**
@@ -60,7 +62,8 @@ class CompanionContextBuilder @Inject constructor(
                     totalChapters = book.totalChapters,
                     currentChapterIndex = book.lastReadChapterIndex,
                     currentChapterTitle =
-                        libraryRepository.getChapterTitle(id, book.lastReadChapterIndex)
+                        libraryRepository.getChapterTitle(id, book.lastReadChapterIndex),
+                    sourceType = book.sourceType
                 )
             }
         }
@@ -210,17 +213,23 @@ class CompanionContextBuilder @Inject constructor(
             buildString {
                 append("用户正在阅读《").append(it.title).append("》")
                 if (it.author.isNotBlank()) append("（作者 ").append(it.author).append("）")
-                append("，全书共 ").append(it.totalChapters).append(" 章，")
-                append("当前读到第 ").append(it.currentChapterIndex + 1).append(" 章")
-                it.currentChapterTitle?.takeIf(String::isNotBlank)?.let { title ->
-                    append("「").append(title).append("」")
+                if (it.sourceType == BookSourceType.PDF) {
+                    append("，共 ").append(it.totalChapters).append(" 页，")
+                    append("当前读到第 ").append(it.currentChapterIndex + 1).append(" 页")
+                } else {
+                    append("，全书共 ").append(it.totalChapters).append(" 章，")
+                    append("当前读到第 ").append(it.currentChapterIndex + 1).append(" 章")
+                    it.currentChapterTitle?.takeIf(String::isNotBlank)?.let { title ->
+                        append("「").append(title).append("」")
+                    }
                 }
                 append("。")
             }
         }
 
         private fun spoilerBlock(progress: BookProgress?): String? = progress?.let {
-            "【防剧透铁律】你的知识范围截止到第 ${it.currentChapterIndex + 1} 章：" +
+            val unit = if (it.sourceType == BookSourceType.PDF) "页" else "章"
+            "【防剧透铁律】你的知识范围截止到第 ${it.currentChapterIndex + 1} $unit：" +
                 "之后的情节你一概不知道，不得叙述、推测或暗示。" +
                 "用户问到后续内容时，坦率说明你也只读到这里；" +
                 "可以基于已读内容一起猜想，但必须说明那只是猜想。"

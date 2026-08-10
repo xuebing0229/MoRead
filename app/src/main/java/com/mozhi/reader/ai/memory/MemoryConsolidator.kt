@@ -32,19 +32,24 @@ internal data class MemoryBatch(
     val throughMessageId: Long
 )
 
-/** §4.6：常规每 30 条；会话关闭时剩余至少 10 条也固化。 */
+/** 常规每 30 条；关闭时伴读会话至少 10 条、短选区学习会话至少 2 条才固化。 */
 internal object MemoryBatchPlanner {
     fun plan(
         messages: List<MessageEntity>,
         consolidatedThrough: Long,
-        forceOnClose: Boolean
+        forceOnClose: Boolean,
+        conversationType: String? = null
     ): MemoryBatch? {
         val candidates = messages.filter {
             it.id > consolidatedThrough &&
                 it.content.isNotBlank() &&
                 (it.role == ChatRole.USER.wire || it.role == ChatRole.ASSISTANT.wire)
         }
-        val threshold = if (forceOnClose) CLOSE_THRESHOLD else BATCH_SIZE
+        val threshold = when {
+            !forceOnClose -> BATCH_SIZE
+            conversationType == SELECTION_TYPE -> SELECTION_CLOSE_THRESHOLD
+            else -> CLOSE_THRESHOLD
+        }
         if (candidates.size < threshold) return null
         val selected = candidates.take(BATCH_SIZE)
         return MemoryBatch(selected, selected.last().id)
@@ -63,6 +68,8 @@ internal object MemoryBatchPlanner {
 
     const val BATCH_SIZE = 30
     const val CLOSE_THRESHOLD = 10
+    const val SELECTION_CLOSE_THRESHOLD = 2
+    private const val SELECTION_TYPE = "SELECTION"
     private const val MAX_MESSAGE_CHARS = 2_000
     private const val MAX_TRANSCRIPT_CHARS = 30_000
 }
@@ -113,7 +120,8 @@ class MemoryConsolidator @Inject constructor(
         var batch = MemoryBatchPlanner.plan(
             chatDao.getMessages(conversationId),
             watermark,
-            forceOnClose
+            forceOnClose,
+            conversation.type
         ) ?: return MemoryConsolidationOutcome.NotReady
 
         val cheap = try {
@@ -138,7 +146,7 @@ class MemoryConsolidator @Inject constructor(
         return try {
             while (true) {
                 if (!VectorQueries.hasMemoryBatch(vectorStore, conversationId, batch.throughMessageId)) {
-                    val summaries = summarize(batch, cheap.client, cheap.options)
+                    val summaries = summarize(batch, conversation.type, cheap.client, cheap.options)
                     if (summaries.isNotEmpty()) {
                         val vectors = embedding.client.embed(summaries)
                         check(vectors.size == summaries.size) { "记忆 embedding 数量与条目数不一致" }
@@ -150,7 +158,11 @@ class MemoryConsolidator @Inject constructor(
                                 entry.conversationId = conversationId
                                 entry.sourceMessageId = batch.throughMessageId
                                 entry.summary = summary
-                                entry.sourceType = SOURCE_TYPE
+                                entry.sourceType = if (conversation.type == SELECTION_TYPE) {
+                                    STUDY_SELECTION_SOURCE_TYPE
+                                } else {
+                                    CHAT_SOURCE_TYPE
+                                }
                                 entry.createdAt = now + index
                                 entry.embedding = Embeddings.conformToIndex(vectors[index])
                             }
@@ -165,7 +177,8 @@ class MemoryConsolidator @Inject constructor(
                 batch = MemoryBatchPlanner.plan(
                     chatDao.getMessages(conversationId),
                     watermark,
-                    forceOnClose
+                    forceOnClose,
+                    conversation.type
                 ) ?: break
             }
             MemoryConsolidationOutcome.Completed(batches, memories)
@@ -178,19 +191,28 @@ class MemoryConsolidator @Inject constructor(
 
     private suspend fun summarize(
         batch: MemoryBatch,
+        conversationType: String,
         client: com.mozhi.reader.ai.client.ChatApiClient,
         options: com.mozhi.reader.ai.client.ChatOptions
     ): List<String> {
+        val instruction = if (conversationType == SELECTION_TYPE) {
+            """
+            你负责把一次教材选区对话固化为长期学习记忆。只保存未来伴学仍有意义的事实：
+            用户困惑或询问的知识点、明确表示已理解或仍未理解的内容、偏好的解释方式，以及学习约定。
+            不要记录“用户选中了某页”“AI 解释了一段话”等流水账。普通翻译没有长期学习价值时输出 []。
+            不猜测，不补充对话外信息。用角色第一人称表述，例如“用户在……上仍有困惑”。
+            只输出 JSON 字符串数组，0 到 5 条，每条独立且简洁，不要 Markdown。
+            """.trimIndent()
+        } else {
+            """
+            你负责把伴读对话固化为长期记忆。只提取未来交流仍有用的用户偏好、事实、约定与共同经历；
+            不记录临时寒暄，不猜测，不补充对话外信息。用角色第一人称表述，例如“用户告诉我……”。
+            只输出 JSON 字符串数组，0 到 5 条，每条独立且简洁，不要 Markdown。
+            """.trimIndent()
+        }
         val response = client.chat(
             messages = listOf(
-                ChatMessage(
-                    ChatRole.SYSTEM,
-                    """
-                    你负责把伴读对话固化为长期记忆。只提取未来交流仍有用的用户偏好、事实、约定与共同经历；
-                    不记录临时寒暄，不猜测，不补充对话外信息。用角色第一人称表述，例如“用户告诉我……”。
-                    只输出 JSON 字符串数组，0 到 5 条，每条独立且简洁，不要 Markdown。
-                    """.trimIndent()
-                ),
+                ChatMessage(ChatRole.SYSTEM, instruction),
                 ChatMessage(ChatRole.USER, MemoryBatchPlanner.transcript(batch))
             ),
             options = options
@@ -206,6 +228,8 @@ class MemoryConsolidator @Inject constructor(
             this is IllegalArgumentException
 
     private companion object {
-        const val SOURCE_TYPE = "CHAT_SUMMARY"
+        const val CHAT_SOURCE_TYPE = "CHAT_SUMMARY"
+        const val STUDY_SELECTION_SOURCE_TYPE = "STUDY_SELECTION"
+        const val SELECTION_TYPE = "SELECTION"
     }
 }

@@ -41,7 +41,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mozhi.reader"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 37
         // 测试期曾发过仓库外的高编号包，编号跳档保证覆盖安装不降级。
         versionCode = 47
@@ -175,6 +175,9 @@ dependencies {
     implementation(libs.juniversalchardet)
     implementation(libs.jsoup)
     implementation(libs.android.svg)
+    implementation(libs.androidx.pdf.core)
+    implementation(libs.androidx.pdf.document.service)
+    implementation(libs.androidx.pdf.viewer)
 
     implementation(libs.readium.shared)
     implementation(libs.readium.streamer)

@@ -8,7 +8,8 @@ import androidx.room.PrimaryKey
 
 enum class BookSourceType {
     TXT,
-    EPUB
+    EPUB,
+    PDF
 }
 
 enum class AiProviderType {
@@ -56,6 +57,7 @@ data class BookEntity(
     val title: String,
     val author: String,
     val coverPath: String?,
+    /** Local source publication path. Despite its legacy name, this may point to EPUB or PDF. */
     val epubPath: String,
     val sourceType: BookSourceType,
     val importedAt: Long,
@@ -99,7 +101,7 @@ data class ChapterEntity(
     val bookId: Long,
     val chapterIndex: Int,
     val title: String,
-    /** EPUB spine resource, and the extraction key for plain text. Empty for TXT books. */
+    /** EPUB spine resource or `pdf-page://<1-based page>`. Empty for TXT books. */
     val href: String,
     /** UTF-16 code units in the chapter body, not bytes. */
     val charCount: Int,

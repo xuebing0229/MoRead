@@ -40,6 +40,35 @@ class MemoryConsolidatorTest {
     }
 
     @Test
+    fun `closing a selection conversation flushes two useful messages only`() {
+        assertNull(
+            MemoryBatchPlanner.plan(
+                messages(1),
+                consolidatedThrough = 0,
+                forceOnClose = true,
+                conversationType = "SELECTION"
+            )
+        )
+        assertEquals(
+            2L,
+            MemoryBatchPlanner.plan(
+                messages(2),
+                consolidatedThrough = 0,
+                forceOnClose = true,
+                conversationType = "SELECTION"
+            )?.throughMessageId
+        )
+        assertNull(
+            MemoryBatchPlanner.plan(
+                messages(2),
+                consolidatedThrough = 0,
+                forceOnClose = true,
+                conversationType = "COMPANION"
+            )
+        )
+    }
+
+    @Test
     fun `planner skips watermark system tool and blank messages`() {
         val ignored = listOf(
             MessageEntity(31, 7, ChatRole.SYSTEM.wire, "system", createdAt = 31),

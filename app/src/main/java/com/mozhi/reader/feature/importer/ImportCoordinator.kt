@@ -43,7 +43,8 @@ class ImportCoordinator @Inject constructor(
     private val mediaStore: BookMediaStore,
     private val sessionStore: ImportSessionStore,
     private val readium: ReadiumServices,
-    private val libraryRepository: LibraryRepository
+    private val libraryRepository: LibraryRepository,
+    private val pdfImporter: PdfImporter
 ) : BookImportGateway {
     override suspend fun backfillMissingCovers(): Unit = withContext(Dispatchers.IO) {
         val marker = File(coversDirectory(), COVER_BACKFILL_MARKER)
@@ -80,7 +81,9 @@ class ImportCoordinator @Inject constructor(
             displayName.endsWith(".epub", ignoreCase = true) ||
                 mimeType == "application/epub+zip" ->
                 PreparedImport.BookImported(importEpub(uri, displayName))
-            else -> error("仅支持 TXT 与 EPUB 文件")
+            displayName.endsWith(".pdf", ignoreCase = true) || mimeType == "application/pdf" ->
+                PreparedImport.BookImported(pdfImporter.import(uri, displayName))
+            else -> error("仅支持 TXT、EPUB 与 PDF 文件")
         }
     }
 

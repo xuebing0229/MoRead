@@ -9,6 +9,7 @@ import com.mozhi.reader.ai.search.WebSearchService
 import com.mozhi.reader.core.database.entity.AnnotationColors
 import com.mozhi.reader.core.database.entity.AnnotationStyle
 import com.mozhi.reader.core.database.entity.BookEntity
+import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.core.database.entity.ModelRole
 import com.mozhi.reader.core.library.AnnotationRepository
 import com.mozhi.reader.core.library.LibraryRepository
@@ -252,7 +253,7 @@ private class GetReadingProgressTool(
 
     override val spec: ToolSpec = ToolSpec(
         name = "get_reading_progress",
-        description = "获取当前书籍的阅读进度：书名、作者、总章数、当前读到的章节。回答与进度或剧情范围相关的问题前应先调用。",
+        description = "获取当前书籍的阅读进度：书名、作者、总章节/页数与当前读到的位置。回答与进度或内容范围相关的问题前应先调用。",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {}
@@ -264,13 +265,16 @@ private class GetReadingProgressTool(
             ?: return "未找到当前书籍"
         val chapters = libraryRepository.getChapters(bookId)
         val current = chapters.getOrNull(book.lastReadChapterIndex)
+        val unit = if (book.sourceType == BookSourceType.PDF) "页" else "章"
         return buildString {
             append("《").append(book.title).append("》")
             if (book.author.isNotBlank()) append("，作者 ").append(book.author)
-            append("。全书共 ").append(book.totalChapters).append(" 章，")
-            append("当前读到第 ").append(book.lastReadChapterIndex + 1).append(" 章")
-            current?.title?.takeIf(String::isNotBlank)?.let { append("「").append(it).append("」") }
-            append("。用户尚未读到之后的章节，回答不要涉及后续剧情。")
+            append("。全书共 ").append(book.totalChapters).append(' ').append(unit).append('，')
+            append("当前读到第 ").append(book.lastReadChapterIndex + 1).append(' ').append(unit)
+            if (book.sourceType != BookSourceType.PDF) {
+                current?.title?.takeIf(String::isNotBlank)?.let { append("「").append(it).append("」") }
+            }
+            append("。用户尚未读到之后的").append(unit).append("，回答不要涉及后续内容。")
         }
     }
 }
@@ -289,11 +293,11 @@ internal class ReadBookSectionTool(
     private val libraryRepository: LibraryRepository,
     private val bookId: Long
 ) : AgentTool {
-    override val displayName: String = "读取指定已读章节"
+    override val displayName: String = "读取指定已读章节或页面"
 
     override val spec: ToolSpec = ToolSpec(
         name = "read_book_section",
-        description = "读取用户指定的已读章节或章节范围原文。概括第几章、第几章到第几章、某一部分时优先使用；不依赖向量索引。章节号从 1 开始，当前章内容只会返回到用户实际阅读位置。",
+        description = "读取用户指定的已读章节或 PDF 页面范围原文。概括明确范围时优先使用；不依赖向量索引。编号从 1 开始。",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
@@ -328,21 +332,25 @@ internal class ReadBookSectionTool(
         if (fromChapter < 1 || toChapter < fromChapter) return "章节范围无效：$fromChapter-$toChapter"
 
         val book = libraryRepository.getBook(bookId) ?: return "未找到当前书籍"
+        val unit = if (book.sourceType == BookSourceType.PDF) "页" else "章"
         val maxReadableChapter = book.lastReadChapterIndex + 1
         if (toChapter > maxReadableChapter) {
-            return "超出已读范围：用户只读到第 $maxReadableChapter 章，不能读取第 $toChapter 章。"
+            return "超出已读范围：用户只读到第 $maxReadableChapter $unit，不能读取第 $toChapter $unit。"
         }
         val chapterEntities = libraryRepository.getChapters(bookId).associateBy { it.chapterIndex }
         val readableChapters = buildList {
             for (chapterNumber in fromChapter..toChapter) {
                 val chapterIndex = chapterNumber - 1
-                val chapter = chapterEntities[chapterIndex] ?: return "未找到第 $chapterNumber 章"
+                val chapter = chapterEntities[chapterIndex] ?: return "未找到第 $chapterNumber $unit"
                 val fullBody = libraryRepository.readChapterText(bookId, chapter)
                 add(
                     ChapterDocument(
                         chapterIndex = chapterIndex,
                         title = chapter.title,
-                        body = if (chapterIndex == book.lastReadChapterIndex) {
+                        body = if (
+                            chapterIndex == book.lastReadChapterIndex &&
+                            book.sourceType != BookSourceType.PDF
+                        ) {
                             fullBody.take(book.lastReadCharOffset.coerceAtLeast(0))
                         } else {
                             fullBody
@@ -356,7 +364,8 @@ internal class ReadBookSectionTool(
             fromChapter = fromChapter,
             toChapter = toChapter,
             startChar = startChar,
-            maxChars = maxChars
+            maxChars = maxChars,
+            unit = unit
         )
     }
 
@@ -372,25 +381,26 @@ internal fun formatBookSection(
     fromChapter: Int,
     toChapter: Int,
     startChar: Int,
-    maxChars: Int
+    maxChars: Int,
+    unit: String = "章"
 ): String {
     val byIndex = chapters.associateBy(ChapterDocument::chapterIndex)
     val output = StringBuilder()
     var remaining = maxChars
     for (chapterNumber in fromChapter..toChapter) {
-        val chapter = byIndex[chapterNumber - 1] ?: return "未找到第 $chapterNumber 章"
+        val chapter = byIndex[chapterNumber - 1] ?: return "未找到第 $chapterNumber $unit"
         val chapterStart = if (chapterNumber == fromChapter) startChar else 0
         if (chapterStart > chapter.body.length) {
-            return "第 $chapterNumber 章可读内容只到字符偏移 ${chapter.body.length}，start_char=$chapterStart 超出范围。"
+            return "第 $chapterNumber $unit 可读内容只到字符偏移 ${chapter.body.length}，start_char=$chapterStart 超出范围。"
         }
         val header = buildString {
             if (output.isNotEmpty()) append("\n\n")
-            append("【第 ").append(chapterNumber).append(" 章")
+            append("【第 ").append(chapterNumber).append(' ').append(unit)
             chapter.title.takeIf(String::isNotBlank)?.let { append("「").append(it).append("」") }
             append("】\n")
         }
         if (header.length >= remaining) {
-            output.append("\n[内容未完：请从第 $chapterNumber 章 start_char=$chapterStart 继续读取]")
+            output.append("\n[内容未完：请从第 $chapterNumber $unit start_char=$chapterStart 继续读取]")
             break
         }
         output.append(header)
@@ -880,8 +890,10 @@ internal class SearchBookTool(
                 maxChapterIndex
             ).map { it.get() }
             val currentPrefix = if (candidates.any { it.chapterIndex == maxChapterIndex }) {
-                loadChapter(maxChapterIndex)?.body
-                    ?.take(book.lastReadCharOffset.coerceAtLeast(0))
+                loadChapter(maxChapterIndex)?.body?.let { body ->
+                    if (book.sourceType == BookSourceType.PDF) body
+                    else body.take(book.lastReadCharOffset.coerceAtLeast(0))
+                }
             } else {
                 null
             }
@@ -908,7 +920,11 @@ internal class SearchBookTool(
             val documents = loadChaptersThrough(maxChapterIndex).map { document ->
                 if (document.chapterIndex == maxChapterIndex) {
                     document.copy(
-                        body = document.body.take(book.lastReadCharOffset.coerceAtLeast(0))
+                        body = if (book.sourceType == BookSourceType.PDF) {
+                            document.body
+                        } else {
+                            document.body.take(book.lastReadCharOffset.coerceAtLeast(0))
+                        }
                     )
                 } else {
                     document
@@ -935,14 +951,15 @@ internal class SearchBookTool(
         }
 
         return buildString {
-            append("以下片段全部来自用户实际已读范围（第 1 至 ${maxChapterIndex + 1} 章）：\n")
+            val unit = if (book.sourceType == BookSourceType.PDF) "页" else "章"
+            append("以下片段全部来自用户实际已读范围（第 1 至 ${maxChapterIndex + 1} $unit）：\n")
             if (vectorFailure != null) {
                 append("（向量服务当前不可用，已自动切换到本地关键词检索。）\n")
             } else if (!hasIndex) {
                 append("（本书向量索引正在后台建立，本次为本地关键词检索结果。）\n")
             }
             combined.forEach { hit ->
-                append("\n【第 ").append(hit.chapterIndex + 1).append(" 章")
+                append("\n【第 ").append(hit.chapterIndex + 1).append(' ').append(unit)
                 chapterTitle(hit.chapterIndex)
                     ?.takeIf(String::isNotBlank)
                     ?.let { append("「").append(it).append("」") }

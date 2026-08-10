@@ -32,12 +32,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.ui.components.blockSheetDrag
 
 /** 书内关键词搜索弹层：即输即搜、逐章流式出结果，点击命中跳到对应位置。 */
 @Composable
 fun ReaderSearchSheet(
     state: ReaderSearchUiState,
+    sourceType: BookSourceType?,
     palette: ReaderPalette,
     onQueryChange: (String) -> Unit,
     onHitClick: (BookSearchHit) -> Unit
@@ -118,9 +120,13 @@ fun ReaderSearchSheet(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                        val unit = if (sourceType == BookSourceType.PDF) "页" else "章"
                         Text(
-                            text = "第 ${hit.chapterIndex + 1} 章" +
-                                hit.chapterTitle.takeIf(String::isNotBlank)?.let { "「$it」" }.orEmpty(),
+                            text = "第 ${hit.chapterIndex + 1} $unit" +
+                                hit.chapterTitle
+                                    .takeIf { sourceType != BookSourceType.PDF && it.isNotBlank() }
+                                    ?.let { "「$it」" }
+                                    .orEmpty(),
                             style = MaterialTheme.typography.labelSmall,
                             color = palette.accent,
                             maxLines = 1,

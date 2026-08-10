@@ -10,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.mozhi.reader.core.database.entity.BookSourceType
 
 class CompanionContextBuilderTest {
 
@@ -72,6 +73,26 @@ class CompanionContextBuilderTest {
         assertTrue(prompt.contains("《长安十二时辰》"))
         assertTrue(prompt.contains("当前读到第 12 章「午正」"))
         assertTrue(prompt.contains("【防剧透铁律】你的知识范围截止到第 12 章"))
+    }
+
+    @Test
+    fun pdfProgressUsesPageWording() {
+        val prompt = CompanionContextBuilder.assemble(
+            persona = null,
+            progress = progress.copy(
+                title = "高等数学",
+                totalChapters = 286,
+                currentChapterIndex = 36,
+                currentChapterTitle = "第 37 页",
+                sourceType = BookSourceType.PDF
+            ),
+            scene = null,
+            memories = emptyList()
+        )
+
+        assertTrue(prompt.contains("共 286 页，当前读到第 37 页"))
+        assertTrue(prompt.contains("知识范围截止到第 37 页"))
+        assertFalse(prompt.contains("第 37 章"))
     }
 
     @Test
