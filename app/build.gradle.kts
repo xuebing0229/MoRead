@@ -43,9 +43,20 @@ android {
         applicationId = "com.mozhi.reader"
         minSdk = 28
         targetSdk = 37
-        // 测试期曾发过仓库外的高编号包，编号跳档保证覆盖安装不降级。
-        versionCode = 47
-        versionName = "0.10.0"
+        // 个人伴学版从 1.0.0 起使用稳定编号：主/次/补丁各占两位，
+        // 例如 1.0.1 -> 10001。以后发布必须同时递增 name 与 code。
+        versionCode = 10000
+        versionName = "1.0.0"
+        buildConfigField(
+            "String",
+            "UPDATE_RELEASES_API",
+            "\"https://api.github.com/repos/xuebing0229/MoRead/releases?per_page=10\""
+        )
+        buildConfigField(
+            "String",
+            "SOURCE_REPOSITORY_URL",
+            "\"https://github.com/xuebing0229/MoRead\""
+        )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 

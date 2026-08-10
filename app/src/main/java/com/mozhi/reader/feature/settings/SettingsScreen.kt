@@ -878,7 +878,7 @@ private fun AppPreferenceCard(
 }
 
 /** 开源仓库地址：关于卡跳转与展示共用。 */
-private const val REPO_URL = "https://github.com/ovo066/MoRead"
+private val REPO_URL = BuildConfig.SOURCE_REPOSITORY_URL
 
 /** 关于卡：版本、开源仓库、许可与隐私说明。 */
 @Composable

@@ -113,7 +113,7 @@ class AppUpdateRepository @Inject constructor(
 
     private fun fetchReleases(): List<GitHubRelease> {
         val request = Request.Builder()
-            .url(RELEASES_API)
+            .url(BuildConfig.UPDATE_RELEASES_API)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "MoRead/${BuildConfig.VERSION_NAME}")
             .build()
@@ -231,7 +231,6 @@ class AppUpdateRepository @Inject constructor(
     )
 
     private companion object {
-        const val RELEASES_API = "https://api.github.com/repos/ovo066/MoRead/releases?per_page=10"
         val JSON = Json { ignoreUnknownKeys = true }
     }
 }

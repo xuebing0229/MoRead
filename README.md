@@ -7,7 +7,7 @@
 <p align="center">极简的原生 Android 本地小说阅读器，内建可深度定制的 AI 伴读。</p>
 
 <p align="center">
-  <a href="https://github.com/ovo066/MoRead/releases"><img src="https://img.shields.io/github/v/release/ovo066/MoRead?label=%E4%B8%8B%E8%BD%BD&color=0a0a0a" alt="Release" /></a>
+  <a href="https://github.com/xuebing0229/MoRead/releases"><img src="https://img.shields.io/github/v/release/xuebing0229/MoRead?label=%E4%B8%8B%E8%BD%BD&color=0a0a0a" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Android-9.0%2B-0a0a0a" alt="Android 9.0+" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
 </p>
