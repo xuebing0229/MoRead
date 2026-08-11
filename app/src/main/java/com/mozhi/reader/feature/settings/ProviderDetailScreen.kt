@@ -356,7 +356,15 @@ private fun ProviderForm(
                         value = baseUrl,
                         onValueChange = { baseUrl = it },
                         label = { Text("Base URL") },
-                        supportingText = { Text("示例：${dialect.defaultBaseUrl()}") },
+                        supportingText = {
+                            Text(
+                                if (baseUrl.trim().startsWith("http://", ignoreCase = true)) {
+                                    "HTTP 不加密 API Key 和对话内容，仅用于你信任的中转站与网络"
+                                } else {
+                                    "示例：${dialect.defaultBaseUrl()}"
+                                }
+                            )
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
