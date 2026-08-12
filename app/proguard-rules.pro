@@ -4,3 +4,9 @@
 -dontwarn com.google.errorprone.annotations.CheckReturnValue
 -dontwarn com.google.errorprone.annotations.Immutable
 -dontwarn com.google.errorprone.annotations.RestrictedApi
+
+# PDFBox-Android only calls Gemalto's optional JPEG 2000 codec when a document
+# contains JPX images. It is not bundled by PDFBox and is unrelated to the
+# permission-encryption normalization used by MoRead.
+-dontwarn com.gemalto.jp2.JP2Decoder
+-dontwarn com.gemalto.jp2.JP2Encoder
