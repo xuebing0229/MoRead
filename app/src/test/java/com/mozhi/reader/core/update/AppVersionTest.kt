@@ -16,8 +16,8 @@ class AppVersionTest {
 
     @Test
     fun personalBuildUsesOwnedUpdateChannel() {
-        assertEquals("1.2.0", BuildConfig.VERSION_NAME)
-        assertEquals(10_200, BuildConfig.VERSION_CODE)
+        assertEquals("1.2.1", BuildConfig.VERSION_NAME)
+        assertEquals(10_201, BuildConfig.VERSION_CODE)
         assertEquals(
             "https://api.github.com/repos/xuebing0229/MoRead/releases?per_page=10",
             BuildConfig.UPDATE_RELEASES_API

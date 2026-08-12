@@ -45,8 +45,8 @@ android {
         targetSdk = 37
         // 个人伴学版从 1.0.0 起使用稳定编号：主/次/补丁各占两位，
         // 例如 1.0.1 -> 10001。以后发布必须同时递增 name 与 code。
-        versionCode = 10200
-        versionName = "1.2.0"
+        versionCode = 10201
+        versionName = "1.2.1"
         buildConfigField(
             "String",
             "UPDATE_RELEASES_API",

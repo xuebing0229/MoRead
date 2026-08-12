@@ -192,7 +192,7 @@ class OpenAiCompatClient(
 
     private companion object {
         const val DONE_MARKER = "[DONE]"
-        const val STREAM_READ_TIMEOUT_S = 120L
+        const val STREAM_READ_TIMEOUT_S = 300L
     }
 }
 

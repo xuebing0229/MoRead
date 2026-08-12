@@ -28,6 +28,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -588,61 +589,98 @@ class ReaderCompanionViewModel @Inject constructor(
                         enabledTools = allowedTools
                     )
                 }
-                val systemPrompt = contextBuilder.build(
-                    persona = persona,
-                    bookId = book,
-                    scene = sceneQuote.takeIf(String::isNotBlank),
-                    memoryQuery = memoryQuery,
-                    toolNames = tools.map { it.spec.name }
-                )
-                agentLoop.run(conversationId, tools, systemPrompt).collect { event ->
-                    when (event) {
-                        is AgentEvent.Text -> {
-                            streamBuffer.append(event.text)
-                            // 正文一到就撤下工具状态行；文本快照本身交给节拍器。
-                            if (session.value.toolStatus != null) {
-                                session.value = session.value.copy(toolStatus = null)
-                            }
-                        }
-                        is AgentEvent.RoundCommitted -> {
-                            streamBuffer.setLength(0)
-                            val messages = session.value.messages
-                            session.value = session.value.copy(
-                                messages = if (messages.any { it.id == event.message.id }) {
-                                    messages
-                                } else {
-                                    messages + event.message
-                                },
-                                streamingText = ""
-                            )
-                        }
-                        is AgentEvent.ToolRun -> session.value = session.value.copy(
-                            toolStatus = "正在${event.displayName}…",
-                            executionSteps = session.value.executionSteps
-                                .filterNot { it.callId == event.callId } + AgentExecutionStep(
-                                callId = event.callId,
-                                toolName = event.toolName,
-                                displayName = event.displayName,
-                                state = AgentStepState.RUNNING
-                            )
-                        )
-                        is AgentEvent.ToolFinished -> session.value = session.value.copy(
-                            toolStatus = null,
-                            executionSteps = session.value.executionSteps.map { step ->
-                                if (step.callId == event.callId) {
-                                    step.copy(
-                                        state = if (event.succeeded) {
-                                            AgentStepState.SUCCEEDED
-                                        } else {
-                                            AgentStepState.FAILED
-                                        },
-                                        detail = event.detail
-                                    )
-                                } else {
-                                    step
+                var receivedAgentEvent = false
+                suspend fun collectAgentEvents(activeTools: List<com.mozhi.reader.ai.agent.AgentTool>) {
+                    val systemPrompt = contextBuilder.build(
+                        persona = persona,
+                        bookId = book,
+                        scene = sceneQuote.takeIf(String::isNotBlank),
+                        memoryQuery = memoryQuery,
+                        toolNames = activeTools.map { it.spec.name }
+                    )
+                    agentLoop.run(conversationId, activeTools, systemPrompt).collect { event ->
+                        receivedAgentEvent = true
+                        when (event) {
+                            is AgentEvent.Text -> {
+                                streamBuffer.append(event.text)
+                                // 正文一到就撤下工具状态行；文本快照本身交给节拍器。
+                                if (session.value.toolStatus != null) {
+                                    session.value = session.value.copy(toolStatus = null)
                                 }
                             }
-                        )
+                            is AgentEvent.RoundCommitted -> {
+                                streamBuffer.setLength(0)
+                                val messages = session.value.messages
+                                session.value = session.value.copy(
+                                    messages = if (messages.any { it.id == event.message.id }) {
+                                        messages
+                                    } else {
+                                        messages + event.message
+                                    },
+                                    streamingText = ""
+                                )
+                            }
+                            is AgentEvent.ToolRun -> session.value = session.value.copy(
+                                toolStatus = "正在${event.displayName}…",
+                                executionSteps = session.value.executionSteps
+                                    .filterNot { it.callId == event.callId } + AgentExecutionStep(
+                                    callId = event.callId,
+                                    toolName = event.toolName,
+                                    displayName = event.displayName,
+                                    state = AgentStepState.RUNNING
+                                )
+                            )
+                            is AgentEvent.ToolFinished -> session.value = session.value.copy(
+                                toolStatus = null,
+                                executionSteps = session.value.executionSteps.map { step ->
+                                    if (step.callId == event.callId) {
+                                        step.copy(
+                                            state = if (event.succeeded) {
+                                                AgentStepState.SUCCEEDED
+                                            } else {
+                                                AgentStepState.FAILED
+                                            },
+                                            detail = event.detail
+                                        )
+                                    } else {
+                                        step
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                val fallbackToolNames = if (book == null) {
+                    EMPTY_STREAM_LIBRARY_FALLBACK_TOOLS
+                } else {
+                    EMPTY_STREAM_BOOK_FALLBACK_TOOLS
+                }
+                val reducedTools = tools.filter { it.spec.name in fallbackToolNames }
+                val attempts = buildList {
+                    add(tools)
+                    add(tools)
+                    if (reducedTools != tools) add(reducedTools)
+                }
+                for ((index, activeTools) in attempts.withIndex()) {
+                    receivedAgentEvent = false
+                    try {
+                        if (index > 0) {
+                            session.value = session.value.copy(
+                                toolStatus = if (index == 1) {
+                                    "连接中断，正在重试…"
+                                } else {
+                                    "连接仍不稳定，正在精简工具重试…"
+                                }
+                            )
+                            delay(EMPTY_STREAM_RETRY_DELAY_MS)
+                        }
+                        collectAgentEvents(activeTools)
+                        break
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        val canRetry = !receivedAgentEvent && error.isRetryableEmptyStream()
+                        if (!canRetry || index == attempts.lastIndex) throw error
                     }
                 }
                 if ("save_plot_summary" in requiredTools && session.value.executionSteps.none {
@@ -703,4 +741,23 @@ class ReaderCompanionViewModel @Inject constructor(
         else -> "请求失败：${message ?: javaClass.simpleName}"
     }
 
+    private companion object {
+        val EMPTY_STREAM_BOOK_FALLBACK_TOOLS = setOf(
+            "get_reading_progress",
+            "search_book",
+            "read_book_section",
+            "recall_memory"
+        )
+        val EMPTY_STREAM_LIBRARY_FALLBACK_TOOLS = setOf(
+            "list_library",
+            "search_library",
+            "recall_memory"
+        )
+        const val EMPTY_STREAM_RETRY_DELAY_MS = 1_500L
+    }
+
 }
+
+internal fun Throwable.isRetryableEmptyStream(): Boolean =
+    this is AiClientException.Http &&
+        message.orEmpty().contains("empty_stream", ignoreCase = true)
