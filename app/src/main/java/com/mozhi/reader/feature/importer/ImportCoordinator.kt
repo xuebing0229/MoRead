@@ -45,7 +45,8 @@ class ImportCoordinator @Inject constructor(
     private val sessionStore: ImportSessionStore,
     private val readium: ReadiumServices,
     private val libraryRepository: LibraryRepository,
-    private val pdfImporter: PdfImporter
+    private val pdfImporter: PdfImporter,
+    private val docxImporter: DocxImporter
 ) : BookImportGateway {
     override suspend fun backfillMissingCovers(): Unit = withContext(Dispatchers.IO) {
         val marker = File(coversDirectory(), COVER_BACKFILL_MARKER)
@@ -88,7 +89,12 @@ class ImportCoordinator @Inject constructor(
                 PreparedImport.BookImported(importEpub(uri, displayName))
             displayName.endsWith(".pdf", ignoreCase = true) || mimeType == "application/pdf" ->
                 PreparedImport.BookImported(pdfImporter.import(uri, displayName, onProgress))
-            else -> error("仅支持 TXT、EPUB 与 PDF 文件")
+            displayName.endsWith(".docx", ignoreCase = true) ||
+                mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
+                PreparedImport.BookImported(docxImporter.import(uri, displayName, onProgress))
+            displayName.endsWith(".doc", ignoreCase = true) || mimeType == "application/msword" ->
+                error("暂不支持旧版 DOC，请先另存为 DOCX 或 PDF")
+            else -> error("仅支持 TXT、EPUB、DOCX 与 PDF 文件")
         }
     }
 

@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 enum class BookSourceType {
     TXT,
     EPUB,
+    DOCX,
     PDF
 }
 
@@ -57,7 +58,7 @@ data class BookEntity(
     val title: String,
     val author: String,
     val coverPath: String?,
-    /** Local source publication path. Despite its legacy name, this may point to EPUB or PDF. */
+    /** Local readable publication path. DOCX imports point to their generated EPUB. */
     val epubPath: String,
     val sourceType: BookSourceType,
     val importedAt: Long,

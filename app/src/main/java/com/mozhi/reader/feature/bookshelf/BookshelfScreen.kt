@@ -537,7 +537,7 @@ private fun ReadingNowCard(
                     Column(modifier = Modifier.padding(start = 16.dp)) {
                         Text("从一本书开始", style = MaterialTheme.typography.titleLarge)
                         Text(
-                            "导入 TXT、EPUB 或 PDF，墨知会整理内容并保存在本机。",
+                            "导入 TXT、EPUB、DOCX 或 PDF，墨知会整理内容并保存在本机。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 5.dp)
@@ -1112,7 +1112,7 @@ private fun EmptyBookshelf(onImport: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp)
             )
             Text(
-                text = "支持 TXT 智能分章、标准 EPUB 与原版 PDF。阅读数据、书签和角色对话上下文优先保存在本机。",
+                text = "支持 TXT 智能分章、标准 EPUB、结构化 DOCX 与原版 PDF。阅读数据、书签和角色对话上下文优先保存在本机。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
