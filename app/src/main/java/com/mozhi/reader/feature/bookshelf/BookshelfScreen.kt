@@ -228,7 +228,10 @@ fun BookshelfScreen(
             enter = fadeIn(tween(160)),
             exit = fadeOut(tween(180))
         ) {
-            ImportProgressOverlay()
+            ImportProgressOverlay(
+                progress = state.importProgress,
+                onCancel = viewModel::cancelImport
+            )
         }
     }
 
@@ -1130,7 +1133,10 @@ private fun EmptyBookshelf(onImport: () -> Unit) {
 }
 
 @Composable
-private fun ImportProgressOverlay() {
+private fun ImportProgressOverlay(
+    progress: com.mozhi.reader.core.importer.BookImportProgress?,
+    onCancel: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1141,20 +1147,40 @@ private fun ImportProgressOverlay() {
             shape = RoundedCornerShape(26.dp),
             shadowElevation = 18.dp
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 19.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 260.dp, max = 320.dp)
+                    .padding(horizontal = 24.dp, vertical = 19.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(25.dp), strokeWidth = 3.dp)
-                Column {
-                    Text("正在整理书籍", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "识别格式与章节，请稍候…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(25.dp), strokeWidth = 3.dp)
+                    Column {
+                        Text("正在整理书籍", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            progress?.message ?: "识别格式与章节，请稍候…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+                progress?.takeIf { it.total > 0 }?.let { current ->
+                    LinearProgressIndicator(
+                        progress = {
+                            (current.completed.toFloat() / current.total).coerceIn(0f, 1f)
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
+                }
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("取消导入")
                 }
             }
         }

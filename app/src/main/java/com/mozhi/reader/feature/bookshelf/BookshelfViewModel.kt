@@ -7,11 +7,14 @@ import com.mozhi.reader.core.database.entity.BookEntity
 import com.mozhi.reader.core.datastore.ReaderSettingsRepository
 import com.mozhi.reader.core.datastore.ShelfLayout
 import com.mozhi.reader.core.importer.BookImportGateway
+import com.mozhi.reader.core.importer.BookImportProgress
 import com.mozhi.reader.core.importer.PreparedImport
 import com.mozhi.reader.core.library.LibraryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -26,8 +29,10 @@ data class BookshelfUiState(
     val layout: ShelfLayout = ShelfLayout.GRID,
     /** 最近在读那本书当前章的章名，给「正在阅读」播放卡用。 */
     val recentChapterTitle: String = "",
-    val isImporting: Boolean = false
-)
+    val importProgress: BookImportProgress? = null
+) {
+    val isImporting: Boolean get() = importProgress != null
+}
 
 sealed interface BookshelfEvent {
     data class OpenImportPreview(val sessionId: String) : BookshelfEvent
@@ -41,7 +46,8 @@ class BookshelfViewModel @Inject constructor(
     private val settingsRepository: ReaderSettingsRepository,
     private val importGateway: BookImportGateway
 ) : ViewModel() {
-    private val importing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    private val importProgress = kotlinx.coroutines.flow.MutableStateFlow<BookImportProgress?>(null)
+    private var importJob: Job? = null
     private val eventChannel = Channel<BookshelfEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
 
@@ -71,13 +77,13 @@ class BookshelfViewModel @Inject constructor(
         books,
         settingsRepository.settings,
         recentChapterTitle,
-        importing
-    ) { books, settings, chapterTitle, isImporting ->
+        importProgress
+    ) { books, settings, chapterTitle, progress ->
         BookshelfUiState(
             books = books,
             layout = settings.shelfLayout,
             recentChapterTitle = chapterTitle,
-            isImporting = isImporting
+            importProgress = progress
         )
     }.stateIn(
         scope = viewModelScope,
@@ -94,24 +100,32 @@ class BookshelfViewModel @Inject constructor(
     }
 
     fun importDocument(uri: Uri) {
-        viewModelScope.launch {
-            importing.value = true
-            runCatching { importGateway.prepare(uri) }
-                .onSuccess { prepared ->
-                    when (prepared) {
-                        is PreparedImport.PreviewReady ->
-                            eventChannel.send(BookshelfEvent.OpenImportPreview(prepared.sessionId))
-                        is PreparedImport.BookImported ->
-                            eventChannel.send(BookshelfEvent.OpenBook(prepared.bookId))
-                    }
+        if (importJob?.isActive == true) return
+        importJob = viewModelScope.launch {
+            importProgress.value = BookImportProgress("正在识别文件")
+            try {
+                when (val prepared = importGateway.prepare(uri) { progress ->
+                    importProgress.value = progress
+                }) {
+                    is PreparedImport.PreviewReady ->
+                        eventChannel.send(BookshelfEvent.OpenImportPreview(prepared.sessionId))
+                    is PreparedImport.BookImported ->
+                        eventChannel.send(BookshelfEvent.OpenBook(prepared.bookId))
                 }
-                .onFailure { error ->
-                    eventChannel.send(
-                        BookshelfEvent.ShowMessage(error.message ?: "导入失败，请检查文件")
-                    )
-                }
-            importing.value = false
+            } catch (_: CancellationException) {
+                eventChannel.send(BookshelfEvent.ShowMessage("已取消导入"))
+            } catch (error: Throwable) {
+                eventChannel.send(
+                    BookshelfEvent.ShowMessage(error.message ?: "导入失败，请检查文件")
+                )
+            } finally {
+                importProgress.value = null
+            }
         }
+    }
+
+    fun cancelImport() {
+        importJob?.cancel()
     }
 
     fun deleteBook(book: BookEntity) {

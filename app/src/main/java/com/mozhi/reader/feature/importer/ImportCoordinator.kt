@@ -10,6 +10,7 @@ import android.util.Size
 import com.mozhi.reader.core.database.entity.BookEntity
 import com.mozhi.reader.core.database.entity.BookSourceType
 import com.mozhi.reader.core.importer.BookImportGateway
+import com.mozhi.reader.core.importer.BookImportProgress
 import com.mozhi.reader.core.importer.PreparedImport
 import com.mozhi.reader.core.library.BookImageInput
 import com.mozhi.reader.core.library.BookMediaStore
@@ -70,10 +71,14 @@ class ImportCoordinator @Inject constructor(
         runCatching { marker.writeText("completed") }
     }
 
-    override suspend fun prepare(uri: Uri): PreparedImport = withContext(Dispatchers.IO) {
+    override suspend fun prepare(
+        uri: Uri,
+        onProgress: (BookImportProgress) -> Unit
+    ): PreparedImport = withContext(Dispatchers.IO) {
         takeReadPermission(uri)
         val displayName = queryDisplayName(uri) ?: "未命名书籍"
         val mimeType = context.contentResolver.getType(uri).orEmpty()
+        onProgress(BookImportProgress("正在读取文件"))
 
         when {
             displayName.endsWith(".txt", ignoreCase = true) || mimeType.startsWith("text/") ->
@@ -82,7 +87,7 @@ class ImportCoordinator @Inject constructor(
                 mimeType == "application/epub+zip" ->
                 PreparedImport.BookImported(importEpub(uri, displayName))
             displayName.endsWith(".pdf", ignoreCase = true) || mimeType == "application/pdf" ->
-                PreparedImport.BookImported(pdfImporter.import(uri, displayName))
+                PreparedImport.BookImported(pdfImporter.import(uri, displayName, onProgress))
             else -> error("仅支持 TXT、EPUB 与 PDF 文件")
         }
     }

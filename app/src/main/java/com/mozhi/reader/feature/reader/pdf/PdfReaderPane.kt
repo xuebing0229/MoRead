@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.pdf.ExperimentalPdfApi
 import androidx.pdf.PdfDocument
+import androidx.pdf.PdfPasswordException
 import androidx.pdf.SandboxedPdfLoader
 import androidx.pdf.selection.ContextMenuComponent
 import androidx.pdf.selection.SelectionMenuComponent
@@ -30,8 +31,11 @@ import androidx.pdf.selection.model.TextSelection
 import androidx.pdf.view.PdfView
 import com.mozhi.reader.ai.prompt.SelectionAiAction
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalPdfApi::class)
 @Composable
@@ -55,9 +59,19 @@ fun PdfReaderPane(
 
     LaunchedEffect(filePath) {
         loadError = null
-        runCatching { openLocalPdf(context, File(filePath)) }
-            .onSuccess { document = it }
-            .onFailure { error -> loadError = error.message ?: "PDF 打开失败" }
+        try {
+            document = withTimeout(PDF_READER_OPEN_TIMEOUT_MS) {
+                openLocalPdf(context, File(filePath))
+            }
+        } catch (_: PdfPasswordException) {
+            loadError = "PDF 设置了打开密码，暂时无法阅读"
+        } catch (_: TimeoutCancellationException) {
+            loadError = "PDF 打开超时，请返回后重试"
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            loadError = error.message ?: "PDF 打开失败"
+        }
     }
     DisposableEffect(document) {
         val opened = document
@@ -162,10 +176,13 @@ private suspend fun openLocalPdf(context: android.content.Context, file: File): 
     return try {
         SandboxedPdfLoader(context).openDocument(
             uri = Uri.fromFile(file),
-            fileDescriptor = descriptor
+            fileDescriptor = descriptor,
+            password = ""
         )
     } catch (error: Throwable) {
         descriptor.close()
         throw error
     }
 }
+
+private const val PDF_READER_OPEN_TIMEOUT_MS = 20_000L
