@@ -19,18 +19,22 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.InsertChartOutlined
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.InsertChartOutlined
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -45,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
@@ -143,6 +148,12 @@ private enum class RootDestination(
         icon = Icons.Outlined.InsertChartOutlined,
         selectedIcon = Icons.Filled.InsertChartOutlined
     ),
+    CasualChat(
+        route = "casual-chat",
+        label = "随聊",
+        icon = Icons.Outlined.ChatBubbleOutline,
+        selectedIcon = Icons.Filled.ChatBubble
+    ),
     Companion(
         route = "companion",
         label = "伴读",
@@ -166,6 +177,8 @@ fun MoReadApp(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = RootDestination.entries.any { it.route == currentRoute }
+    val density = LocalDensity.current
+    val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
 
     LaunchedEffect(incomingBookUri) {
         if (incomingBookUri != null && currentRoute != RootDestination.Bookshelf.route) {
@@ -210,14 +223,22 @@ fun MoReadApp(
                 composable(RootDestination.Stats.route) {
                     StatsScreen(contentPadding = padding)
                 }
+                composable(RootDestination.CasualChat.route) {
+                    CompanionChatScreen(
+                        bookId = null,
+                        onBack = {},
+                        mode = CompanionChatMode.CASUAL,
+                        showBackButton = false,
+                        reserveBottomNavigationSpace = true
+                    )
+                }
                 composable(RootDestination.Companion.route) {
                     CompanionScreen(
                         contentPadding = padding,
                         onEditPersona = { personaId ->
                             navController.navigate("persona/$personaId")
                         },
-                        onCreatePersona = { navController.navigate("persona/0") },
-                        onOpenCasualChat = { navController.navigate("casual-chat") }
+                        onCreatePersona = { navController.navigate("persona/0") }
                     )
                 }
                 composable(RootDestination.Settings.route) {
@@ -301,13 +322,6 @@ fun MoReadApp(
                         onBack = navController::popBackStack
                     )
                 }
-                pushComposable("casual-chat") {
-                    CompanionChatScreen(
-                        bookId = null,
-                        onBack = navController::popBackStack,
-                        mode = CompanionChatMode.CASUAL
-                    )
-                }
                 pushComposable("persona/{personaId}") {
                     PersonaEditorScreen(onBack = navController::popBackStack)
                 }
@@ -319,7 +333,7 @@ fun MoReadApp(
 
             // Dock 是覆盖在内容上的浮层，不占 Scaffold 的 bottomBar 布局高度。
             // 否则 Scaffold 会在整屏底部预留一条矩形空白，看起来像胶囊背后的白横条。
-            if (showBottomBar) {
+            if (showBottomBar && !keyboardVisible) {
                 BottomNavDock(
                     modifier = Modifier.align(Alignment.BottomCenter),
                     selectedRoute = currentRoute,

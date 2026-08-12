@@ -116,6 +116,8 @@ fun CompanionChatScreen(
     bookId: Long?,
     onBack: () -> Unit,
     mode: CompanionChatMode = CompanionChatMode.COMPANION,
+    showBackButton: Boolean = true,
+    reserveBottomNavigationSpace: Boolean = false,
     companionViewModel: ReaderCompanionViewModel = hiltViewModel(),
     mediaViewModel: ReaderSelectionMediaViewModel = hiltViewModel()
 ) {
@@ -217,6 +219,13 @@ fun CompanionChatScreen(
     // 让输入条上方的内容跟着键盘上推（收起时由列表边界钳制自动回落）。
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
+    val bottomNavigationSpace = if (
+        reserveBottomNavigationSpace && imeInsets.getBottom(density) == 0
+    ) {
+        66.dp
+    } else {
+        0.dp
+    }
     LaunchedEffect(messageListState, density) {
         var lastIme = imeInsets.getBottom(density)
         snapshotFlow { imeInsets.getBottom(density) }.collect { ime ->
@@ -249,12 +258,14 @@ fun CompanionChatScreen(
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = "返回",
-                        tint = palette.onBackground
-                    )
+                if (showBackButton) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "返回",
+                            tint = palette.onBackground
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -492,6 +503,7 @@ fun CompanionChatScreen(
 
             // 输入区
             Surface(
+                modifier = Modifier.padding(bottom = bottomNavigationSpace),
                 color = palette.glass,
                 contentColor = palette.onBackground,
                 border = BorderStroke(1.dp, palette.glassBorder),
