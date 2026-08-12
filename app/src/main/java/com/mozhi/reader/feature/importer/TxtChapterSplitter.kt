@@ -145,7 +145,7 @@ class TxtChapterSplitter @Inject constructor() {
     )
 
     private companion object {
-        const val MIN_REASONABLE_CHAPTERS = 4
+        const val MIN_REASONABLE_CHAPTERS = 2
         const val MAX_TITLE_LENGTH = 80
         const val FALLBACK_CHAPTER_SIZE = 10_000
         const val CUSTOM_RULE_ID = Long.MIN_VALUE

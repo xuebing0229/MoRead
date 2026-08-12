@@ -45,8 +45,8 @@ android {
         targetSdk = 37
         // 个人伴学版从 1.0.0 起使用稳定编号：主/次/补丁各占两位，
         // 例如 1.0.1 -> 10001。以后发布必须同时递增 name 与 code。
-        versionCode = 10201
-        versionName = "1.2.1"
+        versionCode = 10202
+        versionName = "1.2.2"
         buildConfigField(
             "String",
             "UPDATE_RELEASES_API",
@@ -189,6 +189,7 @@ dependencies {
     implementation(libs.androidx.pdf.core)
     implementation(libs.androidx.pdf.document.service)
     implementation(libs.androidx.pdf.viewer)
+    implementation(libs.pdfbox.android)
 
     implementation(libs.readium.shared)
     implementation(libs.readium.streamer)

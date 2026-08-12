@@ -30,6 +30,7 @@ espresso = "3.7.0"
 objectbox = "4.3.0"
 androidSvg = "1.4"
 androidxPdf = "1.0.0-alpha19"
+pdfBoxAndroid = "2.0.27.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -83,6 +84,7 @@ android-svg = { module = "com.caverock:androidsvg-aar", version.ref = "androidSv
 androidx-pdf-core = { module = "androidx.pdf:pdf-core", version.ref = "androidxPdf" }
 androidx-pdf-document-service = { module = "androidx.pdf:pdf-document-service", version.ref = "androidxPdf" }
 androidx-pdf-viewer = { module = "androidx.pdf:pdf-viewer", version.ref = "androidxPdf" }
+pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfBoxAndroid" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

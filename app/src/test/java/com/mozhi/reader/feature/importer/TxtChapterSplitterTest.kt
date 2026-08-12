@@ -54,6 +54,19 @@ class TxtChapterSplitterTest {
     }
 
     @Test
+    fun `keeps a valid three chapter short book`() {
+        val text = (1..3).joinToString("\n\n") { chapter ->
+            "第${chapter}章 短篇章节$chapter\n${"这是短篇教材的有效正文。".repeat(20)}"
+        }
+
+        val result = splitter.chooseBest(text, listOf(chineseRule))
+
+        assertEquals(3, result.chapters.size)
+        assertEquals(chineseRule.id, result.rule?.id)
+        assertFalse(result.usedFallback)
+    }
+
+    @Test
     fun `falls back to fixed length sections when no headings exist`() {
         val text = "没有章节标题的长文本。".repeat(2_500)
 

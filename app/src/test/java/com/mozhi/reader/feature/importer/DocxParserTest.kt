@@ -38,6 +38,23 @@ class DocxParserTest {
         }
     }
 
+    @Test
+    fun detectsPlainTextChapterHeadingsWhenWordStylesAreMissing() {
+        val file = Files.createTempFile("moread-docx-plain-headings-", ".docx").toFile()
+        try {
+            ZipOutputStream(file.outputStream()).use { zip ->
+                zip.write("word/document.xml", PLAIN_HEADING_DOCUMENT_XML)
+            }
+
+            val parsed = DocxParser().parse(file, "短篇教材")
+
+            assertEquals(listOf("第一章 总则", "第二章 操作要求", "第三章 附则"), parsed.chapters.map { it.title })
+            assertEquals(listOf("第一章正文", "第二章正文", "第三章正文"), parsed.chapters.map { it.text })
+        } finally {
+            file.delete()
+        }
+    }
+
     private fun ZipOutputStream.write(path: String, text: String) {
         putNextEntry(ZipEntry(path))
         write(text.toByteArray())
@@ -60,6 +77,19 @@ class DocxParserTest {
                 <w:tbl><w:tr><w:tc><w:p><w:r><w:t>甲</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>乙</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
                 <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>第二节</w:t></w:r></w:p>
                 <w:p><w:r><w:t>第二节正文</w:t></w:r></w:p>
+              </w:body>
+            </w:document>
+        """.trimIndent()
+        val PLAIN_HEADING_DOCUMENT_XML = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:body>
+                <w:p><w:r><w:t>第一章 总则</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第一章正文</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第二章 操作要求</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第二章正文</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第三章 附则</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第三章正文</w:t></w:r></w:p>
               </w:body>
             </w:document>
         """.trimIndent()

@@ -60,16 +60,32 @@ class DocxParser @Inject constructor() {
             val body = document.documentElement.descendants("body").firstOrNull()
                 ?: error("DOCX 中没有正文")
             val builders = mutableListOf(ChapterBuilder(title = "正文"))
+            val bodyBlocks = body.childElements().toList()
+            val hasStyledChapterHeadings = bodyBlocks.any { block ->
+                block.localName == "p" && paragraphStyle(block)
+                    ?.let { styles[it] ?: headingLevel(it) }
+                    ?.let { it <= MAX_CHAPTER_HEADING_LEVEL } == true
+            }
+            val structuralHeadingCount = if (hasStyledChapterHeadings) {
+                0
+            } else {
+                bodyBlocks.count { block ->
+                    block.localName == "p" && isStructuralHeading(paragraphText(block))
+                }
+            }
+            val useStructuralHeadingFallback = structuralHeadingCount >= MIN_STRUCTURAL_HEADINGS
 
-            body.childElements().forEach { block ->
+            bodyBlocks.forEach { block ->
                 when (block.localName) {
                     "p" -> {
                         val parsed = parseParagraph(block, relationships, ::readMedia)
                         val headingLevel = paragraphStyle(block)
                             ?.let { styles[it] ?: headingLevel(it) }
-                        if (headingLevel != null && headingLevel <= MAX_CHAPTER_HEADING_LEVEL &&
-                            parsed.text.isNotBlank()
-                        ) {
+                        val isChapterHeading = parsed.text.isNotBlank() && (
+                            headingLevel != null && headingLevel <= MAX_CHAPTER_HEADING_LEVEL ||
+                                useStructuralHeadingFallback && isStructuralHeading(parsed.text)
+                            )
+                        if (isChapterHeading) {
                             val current = builders.last()
                             if (current.hasContent()) {
                                 builders += ChapterBuilder(parsed.text.trim())
@@ -198,6 +214,24 @@ class DocxParser @Inject constructor() {
         ?.getOrNull(1)
         ?.toIntOrNull()
 
+    private fun paragraphText(paragraph: Element): String = buildString {
+        fun visit(node: Node) {
+            when (node.localName) {
+                "t", "instrText" -> append(node.textContent)
+                "tab" -> append('\t')
+                "br", "cr" -> append('\n')
+                else -> node.childNodes.asSequence().forEach(::visit)
+            }
+        }
+        paragraph.childNodes.asSequence().forEach(::visit)
+    }.trim()
+
+    private fun isStructuralHeading(value: String): Boolean {
+        val text = value.trim()
+        return text.length <= MAX_STRUCTURAL_HEADING_LENGTH &&
+            STRUCTURAL_HEADING_PATTERNS.any { it.matches(text) }
+    }
+
     private fun resolveWordTarget(target: String): String? {
         val segments = (if (target.startsWith('/')) target.drop(1) else "word/$target")
             .replace('\\', '/')
@@ -309,11 +343,17 @@ class DocxParser @Inject constructor() {
     private companion object {
         const val IMAGE_TOKEN = "［图片］"
         const val MAX_CHAPTER_HEADING_LEVEL = 2
+        const val MIN_STRUCTURAL_HEADINGS = 2
+        const val MAX_STRUCTURAL_HEADING_LENGTH = 80
         const val MAX_ZIP_ENTRIES = 10_000
         const val MAX_DOCUMENT_XML_BYTES = 30 * 1024 * 1024
         const val MAX_SUPPORT_XML_BYTES = 5 * 1024 * 1024
         const val MAX_IMAGE_BYTES = 30 * 1024 * 1024
         const val MAX_TOTAL_IMAGE_BYTES = 120L * 1024 * 1024
         val HEADING_PATTERN = Regex("(?:heading|标题)\\s*([1-9])", RegexOption.IGNORE_CASE)
+        val STRUCTURAL_HEADING_PATTERNS = listOf(
+            Regex("^第[0-9〇零一二两三四五六七八九十百千万壹贰叁肆伍陆柒捌玖拾佰仟]+[章篇部卷编节](?:[\\s　:：、.-]+.*)?$"),
+            Regex("^(?:chapter|part|volume|book)\\s+(?:[0-9]+|[ivxlcdm]+)(?:[\\s:：.-]+.*)?$", RegexOption.IGNORE_CASE)
+        )
     }
 }

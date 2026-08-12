@@ -27,7 +27,8 @@ import kotlinx.coroutines.withTimeout
 class PdfImporter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val libraryRepository: LibraryRepository,
-    private val textExtractor: PdfPageTextExtractor
+    private val textExtractor: PdfPageTextExtractor,
+    private val legacyNormalizer: LegacyPdfNormalizer
 ) {
     suspend fun import(
         uri: Uri,
@@ -43,6 +44,10 @@ class PdfImporter @Inject constructor(
         var document: PdfDocument? = null
         var insertedBookId: Long? = null
         try {
+            if (legacyNormalizer.needsNormalization(target)) {
+                onProgress(BookImportProgress("正在兼容旧版加密 PDF"))
+                legacyNormalizer.normalize(target)
+            }
             onProgress(BookImportProgress("正在打开 PDF"))
             document = try {
                 withTimeout(PDF_OPEN_TIMEOUT_MS) { openLocalDocument(target) }
