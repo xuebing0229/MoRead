@@ -22,6 +22,6 @@ abstract class ImportModule {
     @Binds
     @Singleton
     abstract fun bindPdfPageTextExtractor(
-        implementation: NativePdfTextExtractor
+        implementation: PdfBoxPageTextExtractor
     ): PdfPageTextExtractor
 }

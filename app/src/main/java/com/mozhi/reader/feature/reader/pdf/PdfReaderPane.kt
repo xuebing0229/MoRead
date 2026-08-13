@@ -177,7 +177,7 @@ private suspend fun openLocalPdf(context: android.content.Context, file: File): 
         SandboxedPdfLoader(context).openDocument(
             uri = Uri.fromFile(file),
             fileDescriptor = descriptor,
-            password = ""
+            password = null
         )
     } catch (error: Throwable) {
         descriptor.close()
